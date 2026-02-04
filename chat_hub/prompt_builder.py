@@ -17,22 +17,31 @@ from .skill_mapper import get_skills_for_task, detect_task_type
 # Patterns that indicate a work request (file edits, code changes, etc.)
 WORK_PATTERNS = [
     r"\b(fix|debug|resolve)\s+(the\s+)?(bug|error|issue|problem)",
-    r"\b(edit|modify|change|update)\s+.{0,20}\b(file|code|function|class|module|status)\b",  # More flexible
-    r"\b(create|add|write|implement)\s+(a\s+)?(new\s+)?(file|function|class|module|feature|test)",
+    r"\b(edit|modify|change|update)\s+.{0,20}\b(file|code|function|class|module|status)\b",
+    r"\b(create|add|write|implement)\s+.{0,20}\b(file|function|class|module|feature|test)",  # More flexible
     r"\b(delete|remove)\s+(the\s+)?(file|function|code|line)",
     r"\b(refactor|restructure|reorganize)",
     r"\bcommit\b",
     r"\b(review|check)\s+(the\s+)?(code|pr|pull\s*request|changes)",
     r"\b(run|execute)\s+(the\s+)?(tests?|script)",
     r"\b(install|setup|configure)",
-    r"\bupdate\s+.{0,10}\bstatus\b",  # "update your status", "update the status", etc.
-    r"\.py\b",  # Mentions a .py file
-    r"\.js\b",  # Mentions a .js file
-    r"\.ts\b",  # Mentions a .ts file
-    r"\.css\b",  # Mentions a .css file
-    r"\.md\b",  # Mentions a .md file
-    r"\.yaml\b",  # Mentions a .yaml file
-    r"\.json\b",  # Mentions a .json file
+    r"\bupdate\s+.{0,10}\bstatus\b",
+    # File operations
+    r"\bread\s+.{0,20}\b(file|files|folder|directory)",  # "read the files in folder"
+    r"\bsummar(y|ise|ize)\b",  # Any summarization task
+    r"\bwrite\s+.{0,15}\b(to|in|into)\b",  # "write to file", "write in a file"
+    r"\bsave\s+.{0,10}\b(to|as|in)\b",  # "save to file", "save as"
+    r"\bgenerate\s+.{0,10}\b(file|report|summary)",  # "generate a file"
+    # File extensions
+    r"\.py\b",
+    r"\.js\b",
+    r"\.ts\b",
+    r"\.css\b",
+    r"\.md\b",
+    r"\.yaml\b",
+    r"\.json\b",
+    r"\.txt\b",
+    r"\.sql\b",
 ]
 
 # Compile patterns for efficiency

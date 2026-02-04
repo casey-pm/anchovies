@@ -74,7 +74,8 @@ async def handle_chat_hub_message(
 
     # Check if this is a work request
     hub = get_chat_hub()
-    result = hub.process_message(cleaned_message, thread_ts=thread_ts)
+    history = get_conversation_history(thread_ts)
+    result = hub.process_message(cleaned_message, thread_ts=thread_ts, conversation_history=history)
 
     if result["type"] == "work_request":
         # Work request detected - spawn persona tab

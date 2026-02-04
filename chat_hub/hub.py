@@ -31,6 +31,21 @@ You are the central coordinator for team communication. Your responsibilities:
 3. **Detect Work Requests**: When someone needs file edits, code changes, or technical work, prepare a task prompt
 4. **Coordinate Cross-Talk**: Help team members communicate and collaborate
 
+## IMPORTANT: Your Limitations in Chat Mode
+In this chat mode, you CANNOT:
+- Read files from disk
+- Create or edit files
+- Run commands or scripts
+- Access the file system
+
+If someone asks you to read files, create files, write summaries to disk, or do any file operations:
+1. Acknowledge what they need
+2. Tell them you'll set up a work session where that can be done
+3. The system will automatically spawn a work session tab
+
+Example response when asked to read/write files:
+"Got it - you need me to read those files and create a summary. I'll set up a work session for that since I can't access files directly in chat mode."
+
 ## Your Team (16 members)
 **Leadership:** Marcus (you), Kai (Code Quality), Olivia (Documentation)
 **Data Engineering:** Elena (Senior), James, Victor (Architect), Anna (Data Quality)
@@ -42,30 +57,17 @@ You are the central coordinator for team communication. Your responsibilities:
 ### For Quick Chat (status, questions, coordination):
 Respond directly as Marcus. Be concise, action-oriented.
 
-### For Work Requests (file edits, bug fixes, code changes):
-When you detect a work request, output a TASK_PROMPT block:
+### For File Operations (read, write, create, edit files):
+Acknowledge the request and let the user know a work session is needed. The system handles spawning work sessions automatically when it detects these requests.
 
-```TASK_PROMPT
-PERSONA: <name>
-TASK: <brief description>
-FILES: <relevant files if known>
-CONTEXT: <any relevant context>
-SKILLS: <relevant skills/commands>
-```
-
-Examples of work requests:
-- "Sofia, fix the bug in data_processor.py"
-- "Leo, write tests for the new module"
-- "Can someone update the CSS for the report?"
-
-### For Routing to Other Personas (non-work chat):
-If someone wants to chat with another team member (not a work task), respond as Marcus acknowledging, then they can spawn that persona's tab.
+### For Routing to Other Personas:
+If someone wants a specific team member for a task, acknowledge and the system will route appropriately.
 
 ## Response Guidelines
 - Be concise and action-oriented (you're the Boss)
 - Use your speech patterns: "What's the blocker?", "Who owns this?", "Let's keep this moving"
-- When detecting work, always output the TASK_PROMPT block
-- Track what team members are working on
+- If asked to do something you can't do in chat mode, be honest about it
+- Remember the conversation context - don't ask users to repeat themselves
 """
 
 
@@ -91,7 +93,13 @@ class ChatHub:
         ]
         return "\n".join(parts)
 
-    def process_message(self, message: str, sender: str = "user", thread_ts: str = "") -> dict:
+    def process_message(
+        self,
+        message: str,
+        sender: str = "user",
+        thread_ts: str = "",
+        conversation_history: list[dict] = None,
+    ) -> dict:
         """
         Process an incoming message and return response info.
 
@@ -99,6 +107,7 @@ class ChatHub:
             message: The incoming message text
             sender: Who sent the message
             thread_ts: Slack thread timestamp (for work request replies)
+            conversation_history: Previous messages in the thread for context
 
         Returns:
             dict with keys:
@@ -112,12 +121,27 @@ class ChatHub:
 
         if work_info["is_work_request"]:
             # Build task prompt for the work session
+            # Include conversation history for context
+            history_context = ""
+            if conversation_history:
+                history_lines = []
+                for msg in conversation_history[-10:]:  # Last 10 messages
+                    role = msg.get("role", "user")
+                    content = msg.get("content", "")
+                    member = msg.get("member", "")
+                    if role == "user":
+                        history_lines.append(f"User: {content}")
+                    else:
+                        history_lines.append(f"{member.title() if member else 'Assistant'}: {content}")
+                history_context = "\n".join(history_lines)
+
             task_prompt = build_task_prompt(
                 persona=work_info["target_persona"],
                 task_description=work_info["task_description"],
                 files=work_info.get("files", []),
                 context=message,
                 thread_ts=thread_ts,
+                thread_history=history_context,
             )
 
             return {
@@ -127,8 +151,8 @@ class ChatHub:
                 "target_persona": work_info["target_persona"],
             }
 
-        # Regular chat - respond as Marcus
-        response = self._get_chat_response(message)
+        # Regular chat - respond as Marcus (with conversation history)
+        response = self._get_chat_response(message, conversation_history)
 
         return {
             "type": "chat",
@@ -137,15 +161,33 @@ class ChatHub:
             "target_persona": None,
         }
 
-    def _get_chat_response(self, message: str) -> str:
+    def _get_chat_response(self, message: str, conversation_history: list[dict] = None) -> str:
         """
         Get a chat response from Marcus using Claude CLI.
 
-        For Phase 2, we use a simple one-shot approach.
-        Later phases can implement persistent conversation.
+        Includes conversation history for context continuity.
         """
-        # Build the prompt
-        prompt = f"{self.get_system_prompt()}\n\n---\n\nUser message: {message}\n\nRespond as Marcus:"
+        # Build the prompt with conversation history
+        parts = [self.get_system_prompt(), "", "---", ""]
+
+        # Add conversation history if available
+        if conversation_history:
+            parts.append("## Recent Conversation")
+            for msg in conversation_history[-10:]:  # Last 10 messages
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                member = msg.get("member", "")
+                if role == "user":
+                    parts.append(f"User: {content}")
+                else:
+                    parts.append(f"{member.title() if member else 'Marcus'}: {content}")
+            parts.extend(["", "---", ""])
+
+        parts.append(f"User's current message: {message}")
+        parts.append("")
+        parts.append("Respond as Marcus (remember the conversation context above):")
+
+        prompt = "\n".join(parts)
 
         try:
             # Use claude CLI with --print for one-shot response
@@ -153,7 +195,7 @@ class ChatHub:
                 [config.CLAUDE_CLI_PATH, "--print", "-p", prompt],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=120,  # Increased timeout for longer contexts
                 cwd=str(config.PROJECT_ROOT),
             )
 
