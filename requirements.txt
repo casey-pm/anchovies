@@ -1,0 +1,14 @@
+# Anchovies Dependencies
+
+# Slack
+slack-bolt>=1.18.0
+slack-sdk>=3.21.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# YAML parsing
+PyYAML>=6.0
+
+# HTTP requests (used by slack-sdk)
+aiohttp>=3.8.0

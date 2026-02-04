@@ -1,0 +1,6 @@
+#!/bin/bash
+# Shortcut for post_to_slack.sh
+# Usage: slack "message" [--member NAME] [--thread TS]
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/post_to_slack.sh" "$@"
