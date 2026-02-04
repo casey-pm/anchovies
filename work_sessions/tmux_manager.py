@@ -156,7 +156,8 @@ class TmuxManager:
         )
 
         # Wait for claude to start (it needs time to initialize)
-        time.sleep(8)
+        # Claude CLI can take 10-15 seconds to fully start and show the prompt
+        time.sleep(15)
 
         # Use tmux load-buffer to load the prompt file content
         # Then paste it into the pane - this handles special chars properly
