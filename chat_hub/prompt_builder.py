@@ -261,6 +261,15 @@ def build_task_prompt(
         "- Ask clarifying questions if needed",
         "- Test your changes before marking complete",
         "- Keep responses concise - you're in a work session, not a chat",
+        "",
+        "## Delegating to Other Team Members",
+        "To spawn another persona's work session, use:",
+        "```bash",
+        "~/paradise_brain/anchovies/scripts/spawn_persona.sh <name>",
+        "```",
+        "Example: `~/paradise_brain/anchovies/scripts/spawn_persona.sh sofia`",
+        "",
+        "Do NOT run `claude --system-prompt` directly - it won't work properly.",
     ])
 
     return "\n".join(parts)

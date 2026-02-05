@@ -90,8 +90,19 @@ echo -e "${GREEN}Spawning work tab for: $PERSONA${NC}"
 # Create new window for the persona
 tmux new-window -t $SESSION -n "$PERSONA" -c "$PARADISE_BRAIN"
 
-# Start claude with the system prompt
-tmux send-keys -t $SESSION:$PERSONA "claude --system-prompt \"\$(cat $PROMPT_TMP)\"" Enter
+# Start claude (without system prompt - we'll paste it as first message)
+tmux send-keys -t $SESSION:$PERSONA "claude" Enter
+
+echo "Waiting for Claude to start..."
+sleep 18
+
+# Use tmux load-buffer and paste-buffer to handle special characters properly
+BUFFER_NAME="prompt_${PERSONA}_$$"
+tmux load-buffer -b "$BUFFER_NAME" "$PROMPT_TMP"
+tmux paste-buffer -b "$BUFFER_NAME" -t $SESSION:$PERSONA
+sleep 1
+tmux send-keys -t $SESSION:$PERSONA Enter
+tmux delete-buffer -b "$BUFFER_NAME" 2>/dev/null || true
 
 echo -e "${GREEN}Done! Tab '$PERSONA' created.${NC}"
 echo ""
