@@ -11,6 +11,7 @@ import os
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -147,7 +148,24 @@ class TmuxManager:
         # 2. Waits for it to be ready
         # 3. Sends the prompt content
 
-        # First, start claude
+        # Use a unique buffer name to avoid collisions when multiple personas spawn
+        buffer_id = f"prompt_{member}_{uuid.uuid4().hex[:8]}"
+
+        # Load the prompt into a uniquely named buffer first
+        self._run_tmux(
+            "load-buffer",
+            "-b", buffer_id,
+            str(prompt_file),
+        )
+
+        # Create a small script that waits for claude and pastes
+        # This runs in the tmux pane itself
+        wait_and_paste_cmd = f'''
+claude && exit 1
+# If claude starts, this loop waits then pastes
+'''
+
+        # Start claude in the new window
         self._run_tmux(
             "send-keys",
             "-t", f"{self.session_name}:{member}",
@@ -156,30 +174,28 @@ class TmuxManager:
         )
 
         # Wait for claude to start (it needs time to initialize)
-        # Claude CLI can take 10-15 seconds to fully start and show the prompt
-        time.sleep(15)
-
-        # Use tmux load-buffer to load the prompt file content
-        # Then paste it into the pane - this handles special chars properly
-        self._run_tmux(
-            "load-buffer",
-            "-b", f"prompt_{member}",
-            str(prompt_file),
-        )
+        # Claude CLI can take 10-20 seconds to fully start and show the prompt
+        time.sleep(18)
 
         # Paste the buffer content
         self._run_tmux(
             "paste-buffer",
-            "-b", f"prompt_{member}",
+            "-b", buffer_id,
             "-t", f"{self.session_name}:{member}",
         )
 
         # Small delay then send Enter to submit
-        time.sleep(0.5)
+        time.sleep(1)
         self._run_tmux(
             "send-keys",
             "-t", f"{self.session_name}:{member}",
             "Enter",
+        )
+
+        # Clean up the buffer
+        self._run_tmux(
+            "delete-buffer",
+            "-b", buffer_id,
         )
 
         logger.info(f"Spawned work tab for '{member}'")
