@@ -186,16 +186,54 @@ def build_task_prompt(
         f'You are {profile.name} ("{profile.nickname}"), {profile.role} on the Domain 360 project team.',
     ]
 
-    # Add brief personality
+    # Add personality
     if profile.personality:
         style = profile.personality.get("communication_style", "professional")
-        parts.append(f"Communication style: {style}")
+        formality = profile.personality.get("formality", "professional-casual")
+        verbosity = profile.personality.get("verbosity", "moderate")
+        parts.append(f"Communication style: {style}, {formality}, {verbosity}")
+
+    # Add traits if available
+    if profile.traits:
+        parts.append("")
+        parts.append("## Your Traits")
+        for trait in profile.traits:
+            parts.append(f"- {trait}")
 
     # Add job summary if available
     if profile.job_summary:
         parts.append("")
-        parts.append("## Your Skills")
+        parts.append("## Your Role & Key Skills")
         parts.append(profile.job_summary.strip())
+
+    # Add expertise (persona-specific technical skills)
+    if profile.expertise:
+        parts.append("")
+        parts.append("## Your Expertise")
+        for skill in profile.expertise:
+            parts.append(f"- {skill}")
+
+    # Add memory (lessons learned) if available
+    if member_context.memory_content:
+        parts.append("")
+        parts.append("## Your Memory (Lessons Learned)")
+        memory = member_context.memory_content[:1500]
+        if len(member_context.memory_content) > 1500:
+            memory += "\n... (truncated)"
+        parts.append(memory)
+
+    # Add team roster for managers
+    if profile.team_roster:
+        parts.append("")
+        parts.append("## Your Team")
+        for pillar, members in profile.team_roster.items():
+            pillar_name = pillar.replace("_", " ").title()
+            parts.append(f"\n### {pillar_name}")
+            for member in members:
+                name = member.get("name", "")
+                nickname = member.get("nickname", "")
+                role = member.get("role", "")
+                parts.append(f"- **{name}** ({nickname}) - {role}")
 
     # Task section
     parts.extend([
@@ -261,15 +299,43 @@ def build_task_prompt(
         "- Ask clarifying questions if needed",
         "- Test your changes before marking complete",
         "- Keep responses concise - you're in a work session, not a chat",
+        "- When referring to team members, use their name (e.g., 'Sofia') - do NOT use @ mentions (e.g., '@sofia')",
         "",
         "## Delegating to Other Team Members",
-        "To spawn another persona's work session, use:",
+        "To spawn another persona's work session with a task, you MUST provide a prompt file:",
         "```bash",
-        "~/paradise_brain/anchovies/scripts/spawn_persona.sh <name>",
+        "~/paradise_brain/anchovies/scripts/spawn_persona.sh <name> <prompt_file>",
         "```",
-        "Example: `~/paradise_brain/anchovies/scripts/spawn_persona.sh sofia`",
+        "",
+        "**Steps to delegate:**",
+        "1. Create a prompt file for the team member (e.g., `~/paradise_brain/anchovies/tmp/prompt_<name>.txt`)",
+        "2. Write their task description and any relevant context to that file",
+        "3. Spawn them with: `~/paradise_brain/anchovies/scripts/spawn_persona.sh <name> ~/paradise_brain/anchovies/tmp/prompt_<name>.txt`",
+        "",
+        "**Prompt file requirements:**",
+        "The prompt file should be a COMPLETE task prompt, not just a brief instruction.",
+        "Use the same format as your own prompt - include identity, skills, task, and completion instructions.",
+        "You can copy the structure from your own prompt and adapt it for the team member.",
+        "",
+        "Example:",
+        "```bash",
+        "# Spawn with a pre-created prompt file",
+        "~/paradise_brain/anchovies/scripts/spawn_persona.sh sofia ~/paradise_brain/anchovies/tmp/prompt_sofia.txt",
+        "```",
+        "",
+        "**IMPORTANT:** Do NOT spawn a persona without a prompt file and then send them instructions afterward.",
+        "This loads unnecessary context. Always include the task in the prompt file at spawn time.",
         "",
         "Do NOT run `claude --system-prompt` directly - it won't work properly.",
+        "",
+        "## When All Tasks Are Complete",
+        "Once you have finished all your work (including any delegated tasks):",
+        "1. **Post a summary to Slack:**",
+        "   ```bash",
+        f'   ~/paradise_brain/anchovies/scripts/slack "All tasks complete. <brief summary>" --member {persona}' + (f' --thread {thread_ts}' if thread_ts else ''),
+        "   ```",
+        "2. **Update your status file** with final status",
+        "3. **Ask the user to close your session** - say something like: \"All tasks complete. You can close this session with `Ctrl+b &`\"",
     ])
 
     return "\n".join(parts)

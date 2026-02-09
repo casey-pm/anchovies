@@ -43,9 +43,25 @@ fi
 
 # Check if persona tab already exists
 if tmux list-windows -t $SESSION -F "#{window_name}" | grep -q "^${PERSONA}$"; then
-    echo -e "${YELLOW}Tab for '$PERSONA' already exists. Switching to it...${NC}"
-    tmux select-window -t $SESSION:$PERSONA
-    exit 0
+    if [[ -n "$PROMPT_FILE" && -f "$PROMPT_FILE" ]]; then
+        echo -e "${YELLOW}Tab for '$PERSONA' already exists. Sending prompt to existing session...${NC}"
+
+        # Load prompt and paste into existing tab
+        BUFFER_NAME="prompt_${PERSONA}_$$"
+        tmux load-buffer -b "$BUFFER_NAME" "$PROMPT_FILE"
+        tmux paste-buffer -b "$BUFFER_NAME" -t $SESSION:$PERSONA
+        sleep 1
+        tmux send-keys -t $SESSION:$PERSONA Enter
+        tmux delete-buffer -b "$BUFFER_NAME" 2>/dev/null || true
+
+        echo -e "${GREEN}Prompt sent to existing '$PERSONA' tab.${NC}"
+        tmux select-window -t $SESSION:$PERSONA
+        exit 0
+    else
+        echo -e "${YELLOW}Tab for '$PERSONA' already exists. Switching to it...${NC}"
+        tmux select-window -t $SESSION:$PERSONA
+        exit 0
+    fi
 fi
 
 # Build the system prompt
