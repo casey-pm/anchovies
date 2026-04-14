@@ -9,6 +9,8 @@ Handles incoming Slack messages and routes them through the Chat Hub:
 import asyncio
 import logging
 import re
+import time
+from collections import OrderedDict
 
 from slack_sdk import WebClient
 
@@ -33,7 +35,17 @@ def get_chat_hub() -> ChatHub:
     return _chat_hub
 
 # In-memory conversation store (thread_ts -> list of messages)
-conversation_store: dict[str, list[dict]] = {}
+# Uses OrderedDict for LRU eviction — most recently accessed threads move to end
+conversation_store: OrderedDict[str, list[dict]] = OrderedDict()
+# Timestamps for when each thread was last accessed (for 24h cleanup)
+_thread_last_accessed: dict[str, float] = {}
+# Counter for periodic cleanup
+_message_counter: int = 0
+
+# Limits
+MAX_THREADS = 500  # Max threads tracked before LRU eviction
+MAX_MESSAGES_PER_THREAD = 200  # Max messages per thread
+THREAD_TTL_SECONDS = 86400  # 24 hours
 
 # Track chain depth per thread to prevent infinite loops
 chain_depth: dict[str, int] = {}
@@ -41,7 +53,11 @@ MAX_CHAIN_DEPTH = 10  # Safety limit for cross-talk
 
 
 def get_conversation_history(thread_ts: str) -> list[dict]:
-    """Get conversation history for a thread."""
+    """Get conversation history for a thread, updating LRU position."""
+    if thread_ts in conversation_store:
+        # Move to end (most recently accessed)
+        conversation_store.move_to_end(thread_ts)
+        _thread_last_accessed[thread_ts] = time.time()
     return conversation_store.get(thread_ts, [])
 
 
@@ -191,8 +207,15 @@ async def handle_chat_hub_message(
 
 
 def add_to_conversation(thread_ts: str, role: str, content: str, member: str = ""):
-    """Add a message to conversation history."""
+    """Add a message to conversation history with LRU eviction."""
+    global _message_counter
+
     if thread_ts not in conversation_store:
+        # Evict oldest thread if at capacity
+        while len(conversation_store) >= MAX_THREADS:
+            evicted_ts, _ = conversation_store.popitem(last=False)
+            _thread_last_accessed.pop(evicted_ts, None)
+            logger.debug(f"LRU evicted thread {evicted_ts}")
         conversation_store[thread_ts] = []
 
     conversation_store[thread_ts].append({
@@ -201,9 +224,32 @@ def add_to_conversation(thread_ts: str, role: str, content: str, member: str = "
         "member": member,
     })
 
-    # High limit to prevent runaway costs on very long threads
-    if len(conversation_store[thread_ts]) > 200:
-        conversation_store[thread_ts] = conversation_store[thread_ts][-200:]
+    # Move to end (most recently accessed)
+    conversation_store.move_to_end(thread_ts)
+    _thread_last_accessed[thread_ts] = time.time()
+
+    # Cap messages per thread
+    if len(conversation_store[thread_ts]) > MAX_MESSAGES_PER_THREAD:
+        conversation_store[thread_ts] = conversation_store[thread_ts][-MAX_MESSAGES_PER_THREAD:]
+
+    # Periodic cleanup of old threads (every 100 messages)
+    _message_counter += 1
+    if _message_counter % 100 == 0:
+        _cleanup_old_threads()
+
+
+def _cleanup_old_threads():
+    """Remove threads not accessed in the last 24 hours."""
+    now = time.time()
+    expired = [
+        ts for ts, last in _thread_last_accessed.items()
+        if now - last > THREAD_TTL_SECONDS
+    ]
+    for ts in expired:
+        conversation_store.pop(ts, None)
+        _thread_last_accessed.pop(ts, None)
+    if expired:
+        logger.info(f"Cleaned up {len(expired)} expired threads")
 
 
 async def handle_team_message(
