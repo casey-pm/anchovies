@@ -79,24 +79,14 @@ if [[ -z "$SLACK_CHANNEL_ID" ]]; then
     exit 1
 fi
 
-# Build JSON payload
-if [[ -n "$THREAD_TS" ]]; then
-    PAYLOAD=$(cat <<EOF
-{
-    "channel": "$SLACK_CHANNEL_ID",
-    "text": "$MESSAGE",
-    "thread_ts": "$THREAD_TS"
-}
-EOF
-)
-else
-    PAYLOAD=$(cat <<EOF
-{
-    "channel": "$SLACK_CHANNEL_ID",
-    "text": "$MESSAGE"
-}
-EOF
-)
+# Build JSON payload safely using Python to handle special characters
+PAYLOAD=$(python3 -c "
+import json, sys
+payload = {'channel': sys.argv[1], 'text': sys.argv[2]}
+if sys.argv[3]:
+    payload['thread_ts'] = sys.argv[3]
+print(json.dumps(payload))
+" "$SLACK_CHANNEL_ID" "$MESSAGE" "$THREAD_TS")
 fi
 
 # Post to Slack
