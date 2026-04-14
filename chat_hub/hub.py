@@ -10,11 +10,11 @@ The Chat Hub is a persistent Claude CLI session that:
 
 import logging
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 from .. import config
+from ..cli_runner import run_claude_cli, ClaudeCliError
 from ..context import load_member_context
 from .prompt_builder import build_task_prompt, detect_work_request
 from .skill_mapper import get_skills_for_task
@@ -99,7 +99,7 @@ class ChatHub:
         ]
         return "\n".join(parts)
 
-    def process_message(
+    async def process_message(
         self,
         message: str,
         sender: str = "user",
@@ -158,7 +158,7 @@ class ChatHub:
             }
 
         # Regular chat - respond as Marcus (with conversation history)
-        response = self._get_chat_response(message, conversation_history)
+        response = await self._get_chat_response(message, conversation_history)
 
         return {
             "type": "chat",
@@ -167,9 +167,9 @@ class ChatHub:
             "target_persona": None,
         }
 
-    def _get_chat_response(self, message: str, conversation_history: list[dict] = None) -> str:
+    async def _get_chat_response(self, message: str, conversation_history: list[dict] = None) -> str:
         """
-        Get a chat response from Marcus using Claude CLI.
+        Get a chat response from Marcus using Claude CLI (async).
 
         Includes conversation history for context continuity.
         """
@@ -196,26 +196,9 @@ class ChatHub:
         prompt = "\n".join(parts)
 
         try:
-            # Use claude CLI with --print for one-shot response
-            result = subprocess.run(
-                [config.CLAUDE_CLI_PATH, "--print", "-p", prompt],
-                capture_output=True,
-                text=True,
-                timeout=120,  # Increased timeout for longer contexts
-                cwd=str(config.PROJECT_ROOT),
-            )
-
-            if result.returncode == 0:
-                return result.stdout.strip()
-            else:
-                logger.error(f"Claude CLI error: {result.stderr}")
-                return "Sorry, I'm having trouble responding right now. Let me know if you need anything specific."
-
-        except subprocess.TimeoutExpired:
-            logger.error("Claude CLI timeout")
-            return "Taking longer than expected. What do you need?"
-        except Exception as e:
-            logger.error(f"Error getting chat response: {e}")
+            return await run_claude_cli(prompt)
+        except ClaudeCliError as e:
+            logger.error(f"Claude CLI error: {e}")
             return "Hit a snag. What's the priority here?"
 
     def format_for_slack(self, response: dict) -> str:
@@ -237,41 +220,46 @@ def create_chat_hub() -> ChatHub:
 
 # CLI interface for testing
 if __name__ == "__main__":
+    import asyncio
+
     logging.basicConfig(level=logging.INFO)
 
-    hub = create_chat_hub()
+    async def main():
+        hub = create_chat_hub()
 
-    print("=" * 60)
-    print("Chat Hub (Marcus) - Test Mode")
-    print("=" * 60)
-    print("Type messages to test. Type 'quit' to exit.")
-    print()
+        print("=" * 60)
+        print("Chat Hub (Marcus) - Test Mode")
+        print("=" * 60)
+        print("Type messages to test. Type 'quit' to exit.")
+        print()
 
-    while True:
-        try:
-            message = input("You: ").strip()
-            if message.lower() in ("quit", "exit", "q"):
-                break
-            if not message:
-                continue
+        while True:
+            try:
+                message = input("You: ").strip()
+                if message.lower() in ("quit", "exit", "q"):
+                    break
+                if not message:
+                    continue
 
-            result = hub.process_message(message)
-            print()
-            print(f"[{result['type'].upper()}]")
-            print(f"Marcus: {result['response']}")
-
-            if result["task_prompt"]:
+                result = await hub.process_message(message)
                 print()
-                print("--- TASK PROMPT ---")
-                print(result["task_prompt"][:500] + "..." if len(result["task_prompt"]) > 500 else result["task_prompt"])
-                print("-------------------")
+                print(f"[{result['type'].upper()}]")
+                print(f"Marcus: {result['response']}")
 
-            print()
+                if result["task_prompt"]:
+                    print()
+                    print("--- TASK PROMPT ---")
+                    print(result["task_prompt"][:500] + "..." if len(result["task_prompt"]) > 500 else result["task_prompt"])
+                    print("-------------------")
 
-        except KeyboardInterrupt:
-            print("\nExiting...")
-            break
-        except EOFError:
-            break
+                print()
 
-    print("Chat Hub stopped.")
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                break
+            except EOFError:
+                break
+
+        print("Chat Hub stopped.")
+
+    asyncio.run(main())
