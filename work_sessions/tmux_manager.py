@@ -6,8 +6,10 @@ Manages the tmux session with:
 - Right side: Work session tabs (one per active persona)
 """
 
+import asyncio
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -103,7 +105,7 @@ class TmuxManager:
         logger.info(f"Killed tmux session '{self.session_name}'")
         return True
 
-    def spawn_persona_tab(
+    async def spawn_persona_tab(
         self,
         member: str,
         task_prompt: str,
@@ -173,22 +175,26 @@ claude && exit 1
             "Enter",
         )
 
-        # Wait for claude to start (it needs time to initialize)
-        # Claude CLI can take 10-20 seconds to fully start and show the prompt
-        time.sleep(18)
+        # Wait for Claude CLI to be ready (replaces fixed 18s sleep)
+        pane_target = f"{self.session_name}:{member}"
+        ready = await self._wait_for_claude_ready(pane_target)
+        if not ready:
+            logger.error(f"Claude CLI did not start in time for '{member}'")
+            self.close_persona_tab(member)
+            return False
 
         # Paste the buffer content
         self._run_tmux(
             "paste-buffer",
             "-b", buffer_id,
-            "-t", f"{self.session_name}:{member}",
+            "-t", pane_target,
         )
 
         # Small delay then send Enter to submit
-        time.sleep(1)
+        await asyncio.sleep(1)
         self._run_tmux(
             "send-keys",
-            "-t", f"{self.session_name}:{member}",
+            "-t", pane_target,
             "Enter",
         )
 
@@ -200,6 +206,42 @@ claude && exit 1
 
         logger.info(f"Spawned work tab for '{member}'")
         return True
+
+    async def _wait_for_claude_ready(
+        self, pane_target: str, timeout: int = 60, poll_interval: float = 2.0
+    ) -> bool:
+        """
+        Poll tmux pane content until Claude CLI shows its ready prompt.
+
+        Looks for indicators that Claude has finished loading:
+        - The '>' prompt character at start of a line
+        - "How can I help" or "What would you like" text
+
+        Args:
+            pane_target: tmux pane identifier (e.g., "anchovies:sofia")
+            timeout: Max seconds to wait before giving up
+            poll_interval: Seconds between polls
+
+        Returns:
+            True if Claude is ready, False if timeout reached
+        """
+        # Pattern matching Claude CLI ready indicators
+        ready_pattern = re.compile(
+            r"(^>\s|How can I help|What would you like|What can I help)",
+            re.MULTILINE | re.IGNORECASE,
+        )
+
+        start = time.time()
+        while time.time() - start < timeout:
+            content = self.get_pane_content(pane_target, lines=10)
+            if ready_pattern.search(content):
+                elapsed = time.time() - start
+                logger.info(f"Claude ready in {pane_target} after {elapsed:.1f}s")
+                return True
+            await asyncio.sleep(poll_interval)
+
+        logger.warning(f"Claude not ready in {pane_target} after {timeout}s")
+        return False
 
     def _write_prompt_file(self, member: str, prompt: str) -> Path:
         """Write task prompt to a temp file and return the path."""
@@ -335,7 +377,7 @@ if __name__ == "__main__":
         elif cmd == "spawn" and len(sys.argv) > 2:
             member = sys.argv[2]
             test_prompt = f"You are {member.title()}. This is a test session."
-            manager.spawn_persona_tab(member, test_prompt)
+            asyncio.run(manager.spawn_persona_tab(member, test_prompt))
         elif cmd == "close" and len(sys.argv) > 2:
             member = sys.argv[2]
             manager.close_persona_tab(member)

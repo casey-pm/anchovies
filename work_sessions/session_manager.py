@@ -62,7 +62,7 @@ class SessionManager:
         self.active_sessions: dict[str, WorkSession] = {}
         self.tmux = get_tmux_manager()
 
-    def start_session(
+    async def start_session(
         self,
         member: str,
         task_description: str,
@@ -96,7 +96,7 @@ class SessionManager:
             return False
 
         # Spawn the persona tab
-        success = self.tmux.spawn_persona_tab(member, task_prompt, working_dir)
+        success = await self.tmux.spawn_persona_tab(member, task_prompt, working_dir)
         if not success:
             logger.error(f"Failed to spawn tab for {member}")
             return False

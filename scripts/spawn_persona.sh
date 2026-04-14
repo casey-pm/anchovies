@@ -109,8 +109,33 @@ tmux new-window -t $SESSION -n "$PERSONA" -c "$PARADISE_BRAIN"
 # Start claude (without system prompt - we'll paste it as first message)
 tmux send-keys -t $SESSION:$PERSONA "claude" Enter
 
+# Wait for Claude CLI to be ready (poll instead of fixed sleep)
 echo "Waiting for Claude to start..."
-sleep 18
+TIMEOUT=60
+ELAPSED=0
+POLL_INTERVAL=2
+READY=false
+
+while [[ $ELAPSED -lt $TIMEOUT ]]; do
+    # Capture the last 10 lines of the pane
+    PANE_CONTENT=$(tmux capture-pane -t $SESSION:$PERSONA -p -S -10 2>/dev/null || echo "")
+
+    # Check for Claude ready indicators
+    if echo "$PANE_CONTENT" | grep -qiE '(^>\s|How can I help|What would you like|What can I help)'; then
+        READY=true
+        echo -e "${GREEN}Claude ready after ${ELAPSED}s${NC}"
+        break
+    fi
+
+    sleep $POLL_INTERVAL
+    ELAPSED=$((ELAPSED + POLL_INTERVAL))
+done
+
+if [[ "$READY" != "true" ]]; then
+    echo -e "${RED}Error: Claude did not start within ${TIMEOUT}s${NC}"
+    tmux kill-window -t $SESSION:$PERSONA 2>/dev/null || true
+    exit 1
+fi
 
 # Use tmux load-buffer and paste-buffer to handle special characters properly
 BUFFER_NAME="prompt_${PERSONA}_$$"

@@ -127,7 +127,7 @@ async def handle_chat_hub_message(
             session_mgr.touch_session(member)
         else:
             # Start new session
-            success = session_mgr.start_session(
+            success = await session_mgr.start_session(
                 member=member,
                 task_description=cleaned_message[:100],
                 task_prompt=task_prompt,
