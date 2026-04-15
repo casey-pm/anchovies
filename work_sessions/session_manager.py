@@ -6,6 +6,7 @@ Persists session state to SQLite so sessions survive bot restarts.
 """
 
 import logging
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -37,6 +38,12 @@ class WorkSession:
     def inactive_minutes(self) -> float:
         """Minutes since last activity."""
         delta = datetime.now() - self.last_activity
+        return delta.total_seconds() / 60
+
+    @property
+    def total_minutes(self) -> float:
+        """Total minutes since session started (regardless of activity)."""
+        delta = datetime.now() - self.started_at
         return delta.total_seconds() / 60
 
     @property
@@ -90,7 +97,15 @@ class SessionManager:
     - Monitor for timeout/auto-close
     """
 
-    TIMEOUT_MINUTES = 10  # Auto-close after this many minutes of inactivity
+    # Soft timeout: closes a session if it's been inactive AND is ready to close
+    # (i.e. status file was updated and the close prompt was shown). Configurable
+    # via SESSION_TIMEOUT_MINUTES env var.
+    TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "10"))
+
+    # Hard timeout: force-closes a session after this many minutes of total
+    # runtime, regardless of whether it's "ready". Prevents stuck/runaway
+    # sessions from running indefinitely. Configurable via HARD_TIMEOUT_MINUTES.
+    HARD_TIMEOUT_MINUTES = int(os.getenv("HARD_TIMEOUT_MINUTES", "30"))
 
     def __init__(self):
         self.active_sessions: dict[str, WorkSession] = {}
@@ -309,10 +324,12 @@ class SessionManager:
 
     def check_timeouts(self) -> list[str]:
         """
-        Check for sessions that have timed out.
+        Check for sessions that have hit the SOFT timeout (inactive AND ready
+        to close). These are safe to auto-close because the persona has already
+        completed the close protocol.
 
         Returns:
-            List of member names with timed out sessions
+            List of member names that have soft-timed-out and can be auto-closed.
         """
         timed_out = []
         for member, session in self.active_sessions.items():
@@ -320,20 +337,109 @@ class SessionManager:
                 if session.can_auto_close:
                     timed_out.append(member)
                 else:
-                    logger.info(f"Session {member} inactive but not ready to auto-close")
+                    logger.info(
+                        f"Session {member} inactive ({session.inactive_minutes:.1f}m) "
+                        f"but not ready to auto-close (status_updated="
+                        f"{session.status_updated}, close_prompt_shown="
+                        f"{session.close_prompt_shown})"
+                    )
         return timed_out
+
+    def check_hard_timeouts(self) -> list[str]:
+        """
+        Check for sessions that have hit the HARD timeout (total runtime
+        regardless of state). These will be force-closed even if not "ready".
+
+        Returns:
+            List of member names that have hard-timed-out.
+        """
+        force_close = []
+        for member, session in self.active_sessions.items():
+            if session.total_minutes > self.HARD_TIMEOUT_MINUTES:
+                force_close.append(member)
+                logger.warning(
+                    f"Session {member} hit HARD timeout "
+                    f"({session.total_minutes:.1f}m > {self.HARD_TIMEOUT_MINUTES}m) "
+                    f"— will be force-closed"
+                )
+        return force_close
+
+    def find_crashed_sessions(self) -> list[str]:
+        """
+        Inspect tmux panes for active sessions whose Claude CLI process has died.
+
+        Returns:
+            List of member names whose tracked session is dead in tmux.
+        """
+        crashed = []
+        for member in list(self.active_sessions.keys()):
+            if not self.check_pane_alive(member):
+                crashed.append(member)
+                logger.warning(f"Session {member} pane is dead — Claude CLI crashed or exited")
+        return crashed
 
     def auto_close_timed_out(self) -> list[str]:
         """
-        Auto-close sessions that have timed out and are ready to close.
+        Run a sweep of all timeout/crash conditions and close affected sessions.
+
+        Three categories handled:
+          1. Soft timeout + ready -> end_session normally (status='completed')
+          2. Hard timeout (any state) -> end_session(force=True), status='timeout'
+          3. Crashed pane -> end_session(force=True), status='crashed'
 
         Returns:
-            List of member names that were closed
+            List of member names closed during this sweep.
         """
-        closed = []
+        closed: list[str] = []
+
+        # Soft timeouts (graceful)
         for member in self.check_timeouts():
             if self.end_session(member):
                 closed.append(member)
+
+        # Hard timeouts (force close, mark as timeout)
+        for member in self.check_hard_timeouts():
+            if member in closed:
+                continue
+            session = self.active_sessions.get(member)
+            if not session:
+                continue
+            self.storage.mark_session_status(member, "timeout")
+            self.storage.log_event(
+                "session_timeout",
+                member=member,
+                details={
+                    "task": session.task_description,
+                    "total_minutes": session.total_minutes,
+                    "hard_timeout_minutes": self.HARD_TIMEOUT_MINUTES,
+                },
+            )
+            self.tmux.close_persona_tab(member)
+            del self.active_sessions[member]
+            closed.append(member)
+            logger.warning(f"Force-closed {member} after hard timeout")
+
+        # Crashed processes
+        for member in self.find_crashed_sessions():
+            if member in closed:
+                continue
+            session = self.active_sessions.get(member)
+            if not session:
+                continue
+            self.storage.mark_session_status(member, "crashed")
+            self.storage.log_event(
+                "session_crashed",
+                member=member,
+                details={
+                    "task": session.task_description,
+                    "reason": "pane dead during timeout sweep",
+                },
+            )
+            self.tmux.close_persona_tab(member)
+            del self.active_sessions[member]
+            closed.append(member)
+            logger.warning(f"Cleaned up crashed session for {member}")
+
         return closed
 
     def check_pane_alive(self, member: str) -> bool:
