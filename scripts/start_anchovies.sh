@@ -48,27 +48,26 @@ fi
 echo -e "${GREEN}Creating new session...${NC}"
 
 # Create new detached session with 'chat' window
-tmux new-session -d -s $SESSION -n "chat" -c "$PARADISE_BRAIN" -x 200 -y 50
+tmux new-session -d -s $SESSION -n "chat" -c "$ANCHOVIES_DIR" -x 200 -y 50
 
 # Enable mouse support
 tmux set-option -t $SESSION mouse on 2>/dev/null || true
 
+# Persistent status bar at bottom with quick reference keybindings
+tmux set-option -t $SESSION status-left " 🐟 #S | " 2>/dev/null || true
+tmux set-option -t $SESSION status-left-length 40 2>/dev/null || true
+tmux set-option -t $SESSION status-right " [C-b 0]chat [C-b n/p]next/prev [C-b &]close [C-b d]detach [C-b ?]help " 2>/dev/null || true
+tmux set-option -t $SESSION status-right-length 80 2>/dev/null || true
+tmux set-option -t $SESSION status-bg colour24 2>/dev/null || true
+tmux set-option -t $SESSION status-fg colour255 2>/dev/null || true
+
+# Display the help banner in the chat pane so it appears in scrollback
+tmux send-keys -t $SESSION:chat "clear && $ANCHOVIES_DIR/scripts/help_banner.sh" Enter
+
 echo ""
 echo -e "${GREEN}Session created!${NC}"
 echo ""
-echo -e "${BLUE}Layout:${NC}"
-echo "┌─────────────────────────────────────────────────────────────┐"
-echo "│  [chat] [sofia] [leo] ...   ← tabs appear as you spawn     │"
-echo "│                                                             │"
-echo "│  Chat Hub (Marcus) - or persona work session                │"
-echo "│                                                             │"
-echo "└─────────────────────────────────────────────────────────────┘"
-echo ""
-echo -e "${BLUE}Keyboard shortcuts:${NC}"
-echo "  Ctrl+b 0    → Jump to chat tab"
-echo "  Ctrl+b n/p  → Next/previous tab"
-echo "  Ctrl+b d    → Detach (session keeps running)"
-echo ""
-echo "Attaching..."
+echo "Attaching... (help banner will display in the chat pane — scroll up anytime to re-read)"
+echo "Run './scripts/help_banner.sh' inside any pane to show it again."
 
 exec tmux attach-session -t $SESSION
