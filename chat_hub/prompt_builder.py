@@ -47,39 +47,92 @@ WORK_PATTERNS = [
 # Compile patterns for efficiency
 WORK_REGEX = [re.compile(p, re.IGNORECASE) for p in WORK_PATTERNS]
 
+# Negative patterns that suggest the message is a QUESTION or DISCUSSION,
+# not a work request. These suppress false positives like "how does the
+# review process work?" triggering on "review".
+NEGATIVE_PATTERNS = [
+    # Questions
+    r"^\s*(how|what|why|when|where|who|which)\s",
+    r"\?$",
+    r"\bcan you (explain|tell|describe|help me understand)\b",
+    r"\bdo you (know|think|remember)\b",
+    # Past tense / already done
+    r"\bi\s+(already|just)\s+\w+ed\b",
+    r"\b(has|have|had)\s+been\s+\w+ed\b",
+    r"\b(we|i)\s+fixed\b",
+    r"\b(we|i)\s+already\b",
+    # Hypotheticals
+    r"\bwhat if\b",
+    r"\bshould we\b",
+    r"\bwould it\b",
+    r"\bcould we\b",
+    # Status inquiries
+    r"\bstatus\s+(of|on|update)\b",
+    r"\bany (news|updates?|progress)\b",
+]
+NEGATIVE_REGEX = [re.compile(p, re.IGNORECASE) for p in NEGATIVE_PATTERNS]
+
+# Minimum confidence required to classify as work request without asking
+MIN_WORK_CONFIDENCE = 0.5
+
 
 def detect_work_request(message: str) -> dict:
     """
     Detect if a message is a work request.
+
+    Uses a confidence-scored approach:
+      - Positive patterns (action keywords, file references) increase score
+      - Negative patterns (questions, past tense) decrease score
+      - Confidence >= MIN_WORK_CONFIDENCE -> is_work_request=True
+      - Lower confidence with some positive signal -> needs_clarification=True
 
     Args:
         message: The message text
 
     Returns:
         dict with keys:
-            - is_work_request: bool
-            - target_persona: str or None
+            - is_work_request: bool (confident work request)
+            - needs_clarification: bool (ambiguous, should ask)
+            - confidence: float (0.0-1.0)
+            - target_persona: str
             - task_description: str
             - files: list of mentioned files
     """
-    # Check for work patterns
-    is_work = any(pattern.search(message) for pattern in WORK_REGEX)
+    # Count positive matches
+    positive_hits = sum(1 for pattern in WORK_REGEX if pattern.search(message))
 
-    # Extract target persona (look for @mentions or name references)
-    target_persona = extract_target_persona(message)
+    # Count negative matches
+    negative_hits = sum(1 for pattern in NEGATIVE_REGEX if pattern.search(message))
 
-    # Extract mentioned files
+    # Extract mentioned files (a strong positive signal)
     files = extract_files(message)
 
-    # If files are mentioned, it's likely a work request
-    if files and not is_work:
-        is_work = True
+    # Compute confidence
+    # Base: 0.5 per positive hit (so 1 clear action keyword = at threshold).
+    # Files give a small boost. Negatives subtract.
+    positive_score = min(positive_hits * 0.5, 1.0)
+    if files and positive_score < 1.0:
+        positive_score = min(positive_score + 0.3, 1.0)
+    negative_penalty = min(negative_hits * 0.4, 1.0)
+    confidence = max(positive_score - negative_penalty, 0.0)
 
-    # Extract task description
+    # Classification
+    is_work = confidence >= MIN_WORK_CONFIDENCE
+    # Ambiguous: some positive signal but below threshold
+    needs_clarification = (
+        not is_work
+        and positive_hits > 0
+        and confidence > 0.15
+    )
+
+    # Extract target persona and task description
+    target_persona = extract_target_persona(message)
     task_description = extract_task_description(message)
 
     return {
         "is_work_request": is_work,
+        "needs_clarification": needs_clarification,
+        "confidence": confidence,
         "target_persona": target_persona or config.DEFAULT_MEMBER,
         "task_description": task_description,
         "files": files,
@@ -293,6 +346,40 @@ def build_task_prompt(
         "",
         "3. **Signal completion:**",
         "   Tell the user you're done so they can close this session with `Ctrl+b &` or switch back to chat with `Ctrl+b 0`.",
+        "",
+        "## MANDATORY SAFETY RULES",
+        "",
+        "### Protected Files (NEVER touch)",
+        "The following files/patterns must NEVER be edited, deleted, or overwritten:",
+    ])
+    for pattern in config.PROTECTED_FILES:
+        parts.append(f"- `{pattern}`")
+    parts.extend([
+        "",
+        "You MAY read these files to understand configuration, but must NEVER modify them.",
+        "If a task seems to require modifying a protected file, STOP and ask Casey in Slack.",
+        "",
+        "### Destructive Operations (REQUIRE APPROVAL)",
+        "Before performing ANY of these operations, you MUST post a message to Slack",
+        "describing what you want to do and why, then WAIT for Casey's explicit approval:",
+        "- Deleting files",
+        "- Dropping database tables",
+        "- Overwriting data files",
+        "- Running migration scripts",
+        "- Force-push, reset --hard, or any other destructive git operation",
+        "- Any operation that cannot be easily undone",
+        "",
+        "Posting format for approval requests:",
+        "```bash",
+        f'~/paradise_brain/anchovies/scripts/slack "APPROVAL NEEDED: <what and why>" --member {persona}' + (f' --thread {thread_ts}' if thread_ts else ''),
+        "```",
+        "Wait for Casey to respond with \"approved\" or \"go ahead\" before proceeding.",
+        "",
+        "### Shell Command Rules",
+        "- ALLOWED: git, pytest, python, dbt, ls, cat, head, tail, grep, find, echo, cd, mkdir",
+        "- BLOCKED: rm -rf, sudo, shutdown, curl (external URLs), wget",
+        "- REQUIRES APPROVAL: pip install, npm install (propose in Slack first)",
+        "- If unsure, ASK in Slack before running",
         "",
         "## Important",
         "- Focus on the task at hand",

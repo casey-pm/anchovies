@@ -125,6 +125,21 @@ class ChatHub:
         # Check if this is a work request
         work_info = detect_work_request(message)
 
+        # Ambiguous request — ask for clarification instead of guessing
+        if work_info.get("needs_clarification"):
+            target = work_info["target_persona"].title()
+            return {
+                "type": "clarification",
+                "response": (
+                    f"I'm not sure if you want me to start a work session for {target} "
+                    f"on this, or if it's just a question. Could you clarify? "
+                    f"(For a work session, say something like 'fix X in file.py' or "
+                    f"'update Y'. For a question, just rephrase as a question.)"
+                ),
+                "task_prompt": None,
+                "target_persona": work_info["target_persona"],
+            }
+
         if work_info["is_work_request"]:
             # Build task prompt for the work session
             # Include conversation history for context

@@ -28,6 +28,12 @@ SLACK_STATUS_CHANNEL = os.getenv("SLACK_STATUS_CHANNEL", "")
 _allowed_raw = os.getenv("ALLOWED_CHANNELS", "")
 ALLOWED_CHANNELS: list[str] = [c.strip() for c in _allowed_raw.split(",") if c.strip()]
 
+# Files and directories personas must NEVER edit, delete, or overwrite.
+# Glob-style patterns. Defaults cover secrets and credentials.
+_protected_default = ".env,.env.*,credentials.*,**/secrets/**,*.pem,*.key"
+_protected_raw = os.getenv("PROTECTED_FILES", _protected_default)
+PROTECTED_FILES: list[str] = [p.strip() for p in _protected_raw.split(",") if p.strip()]
+
 # Paths
 BOT_DIR = Path(__file__).parent  # anchovies/
 PROJECT_ROOT = BOT_DIR.parent  # paradise_brain/
