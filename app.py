@@ -73,6 +73,7 @@ def create_app() -> AsyncApp:
             thread_ts=thread_ts,
             user_message=user_message,
             bot_user_id=app._bot_user_id,
+            user_id=event.get("user", "anonymous"),
         )
 
     # Handle messages (DMs, private channels, and group DMs)
@@ -113,6 +114,7 @@ def create_app() -> AsyncApp:
             thread_ts=thread_ts,
             user_message=user_message,
             bot_user_id=app._bot_user_id,
+            user_id=event.get("user", "anonymous"),
         )
 
     # Handle app home opened

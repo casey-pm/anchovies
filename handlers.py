@@ -20,6 +20,7 @@ from .context import load_member_context
 from .router import route_message, extract_bot_mention
 from .cli_runner import generate_team_member_response, ClaudeCliError
 from .chat_hub import ChatHub, create_chat_hub, detect_work_request
+from .rate_limit import get_rate_limiter
 from .sanitiser import log_if_suspicious
 from .work_sessions import get_tmux_manager, get_session_manager
 
@@ -281,6 +282,7 @@ async def handle_team_message(
     is_crosstalk: bool = False,
     source_member: str = "",
     use_chat_hub: bool = True,
+    user_id: str = "anonymous",
 ) -> None:
     """
     Handle a message directed at team members.
@@ -299,6 +301,24 @@ async def handle_team_message(
         source_member: Name of the team member who triggered this (for crosstalk)
         use_chat_hub: If True, route through Chat Hub first (default: True)
     """
+    # Rate limiting (skip for crosstalk — that's bot-to-bot, not user-driven)
+    if not is_crosstalk:
+        limiter = get_rate_limiter()
+        if not limiter.allow(user_id=user_id):
+            logger.warning(f"Rate limit hit for user {user_id} in {channel_id}")
+            try:
+                client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=thread_ts,
+                    text=(
+                        ":hourglass_flowing_sand: I'm at capacity right now — "
+                        "please try again in a moment."
+                    ),
+                )
+            except Exception as e:
+                logger.error(f"Failed to post rate-limit reply: {e}")
+            return
+
     # Initialize or increment chain depth for this thread
     if not is_crosstalk:
         chain_depth[thread_ts] = 0
