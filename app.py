@@ -58,6 +58,12 @@ def create_app() -> AsyncApp:
         channel_id = event["channel"]
         user_message = event.get("text", "")
         thread_ts = event.get("thread_ts") or event["ts"]
+        channel_type = event.get("channel_type")  # Usually "channel" for @mentions
+
+        # Enforce channel allowlist (public channels only — DMs always pass)
+        if not config.is_channel_allowed(channel_id, channel_type):
+            logger.info(f"Ignoring mention in non-allowed channel {channel_id}")
+            return
 
         logger.info(f"Received mention in {channel_id}: {user_message[:50]}...")
 
@@ -89,6 +95,13 @@ def create_app() -> AsyncApp:
             return
 
         channel_id = event["channel"]
+
+        # DMs/group DMs/private channels bypass the allowlist, but we still
+        # run the check here in case channel_type is unexpected.
+        if not config.is_channel_allowed(channel_id, channel_type):
+            logger.info(f"Ignoring message in non-allowed channel {channel_id}")
+            return
+
         user_message = event.get("text", "")
         thread_ts = event.get("thread_ts") or event["ts"]
 

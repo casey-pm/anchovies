@@ -20,6 +20,13 @@ SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
 SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
 SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "")
+SLACK_STATUS_CHANNEL = os.getenv("SLACK_STATUS_CHANNEL", "")
+
+# Channel allowlist — comma-separated channel IDs where the bot will respond.
+# DMs, group DMs, and private channels always bypass this list.
+# If empty, the bot responds in ALL channels (backwards-compatible default).
+_allowed_raw = os.getenv("ALLOWED_CHANNELS", "")
+ALLOWED_CHANNELS: list[str] = [c.strip() for c in _allowed_raw.split(",") if c.strip()]
 
 # Paths
 BOT_DIR = Path(__file__).parent  # anchovies/
@@ -133,3 +140,34 @@ def get_member_name(name_or_alias: str) -> str | None:
         return MEMBER_ALIASES[name_lower]
 
     return None
+
+
+# Channel types that bypass the allowlist (always allowed)
+_BYPASS_CHANNEL_TYPES = frozenset({"im", "mpim", "group", "private_channel"})
+
+
+def is_channel_allowed(channel_id: str, channel_type: str | None = None) -> bool:
+    """
+    Check whether the bot is allowed to respond in this channel.
+
+    Rules:
+      - DMs, group DMs, and private channels always pass (channel_type bypass)
+      - If ALLOWED_CHANNELS is empty, all channels pass (backwards-compatible)
+      - Otherwise, channel_id must be in ALLOWED_CHANNELS
+
+    Args:
+        channel_id: Slack channel ID (e.g., "C0123ABC")
+        channel_type: Slack channel type, if known (im/mpim/group/private_channel/channel)
+
+    Returns:
+        True if allowed to respond, False otherwise.
+    """
+    # DMs and private channels always bypass the allowlist
+    if channel_type and channel_type in _BYPASS_CHANNEL_TYPES:
+        return True
+
+    # Empty allowlist = allow everywhere (backwards compatible)
+    if not ALLOWED_CHANNELS:
+        return True
+
+    return channel_id in ALLOWED_CHANNELS
