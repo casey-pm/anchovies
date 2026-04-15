@@ -49,3 +49,9 @@ htmlcov/
 # Project specific
 status/
 memory/
+
+# Runtime state (SQLite DB, WAL, SHM)
+data/
+*.db
+*.db-wal
+*.db-shm
