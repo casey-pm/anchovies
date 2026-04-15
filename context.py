@@ -30,6 +30,7 @@ class MemberProfile:
     relationships: dict = field(default_factory=dict)
     job_summary: str = ""  # Condensed job description with key skills
     team_roster: dict = field(default_factory=dict)  # Full team roster (for managers)
+    model_override: str | None = None  # Per-persona model (e.g., "opus") — overrides CHAT_MODEL/WORK_MODEL
 
 
 @dataclass
@@ -176,6 +177,7 @@ def load_profile(member_name: str) -> MemberProfile:
             relationships=data.get("relationships", {}),
             job_summary=data.get("job_summary", ""),
             team_roster=data.get("team_roster", {}),
+            model_override=data.get("model_override"),
         )
     except Exception as e:
         logger.error(f"Error loading profile for {member_name}: {e}")

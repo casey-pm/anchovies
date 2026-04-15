@@ -53,7 +53,14 @@ JOB_DESCRIPTIONS_DIR = Path(os.getenv(
 
 # Claude CLI
 CLAUDE_CLI_PATH = os.getenv("CLAUDE_CLI_PATH", "claude")
+# Legacy single-model setting (kept for backwards compatibility).
+# Prefer CHAT_MODEL / WORK_MODEL below.
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "sonnet")
+# Per-context model selection.
+# CHAT_MODEL is used for Marcus's chat-hub responses (cheaper, faster).
+# WORK_MODEL is used for persona work sessions (more capable).
+CHAT_MODEL = os.getenv("CHAT_MODEL", "haiku")
+WORK_MODEL = os.getenv("WORK_MODEL", "sonnet")
 
 # tmux Configuration
 TMUX_SESSION_NAME = os.getenv("TMUX_SESSION_NAME", "anchovies")

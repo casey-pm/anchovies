@@ -458,12 +458,19 @@ async def process_member_response(
         # Get conversation history from thread memory
         history = get_conversation_history(thread_ts)
 
+        # Resolve model: profile override > WORK_MODEL > default
+        model = (
+            getattr(profile, "model_override", None)
+            or config.WORK_MODEL
+        )
+
         # Generate response using Claude CLI
         response = await generate_team_member_response(
             member_name=profile.name,
             system_prompt=system_prompt,
             user_message=user_message,
             conversation_history=history,
+            model=model,
         )
 
         # Update the thinking message with the response

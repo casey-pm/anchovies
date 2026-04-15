@@ -211,8 +211,15 @@ class ChatHub:
 
         prompt = "\n".join(parts)
 
+        # Resolve model: persona override > CHAT_MODEL > default
+        profile = self.context.profile
+        model = (
+            getattr(profile, "model_override", None)
+            or config.CHAT_MODEL
+        )
+
         try:
-            return await run_claude_cli(prompt)
+            return await run_claude_cli(prompt, model=model)
         except ClaudeCliError as e:
             logger.error(f"Claude CLI error: {e}")
             return "Hit a snag. What's the priority here?"

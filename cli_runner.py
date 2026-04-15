@@ -21,6 +21,7 @@ class ClaudeCliError(Exception):
 async def run_claude_cli(
     prompt: str,
     timeout: float = 120.0,
+    model: str | None = None,
 ) -> str:
     """
     Run Claude CLI and return the response.
@@ -28,6 +29,8 @@ async def run_claude_cli(
     Args:
         prompt: The prompt to send to Claude
         timeout: Maximum time to wait for response (seconds)
+        model: Model name (e.g., 'haiku', 'sonnet', 'opus'). If None,
+               uses config.CLAUDE_MODEL (legacy default).
 
     Returns:
         Claude's response text
@@ -40,12 +43,17 @@ async def run_claude_cli(
     if not claude_path:
         raise ClaudeCliError(f"Claude CLI not found: {config.CLAUDE_CLI_PATH}")
 
+    # Build the command — add --model flag if model is specified
+    cmd = [claude_path, "--print"]
+    selected_model = model or config.CLAUDE_MODEL
+    if selected_model:
+        cmd.extend(["--model", selected_model])
+    cmd.extend(["-p", prompt])
+
     try:
         # Run claude with --print flag for non-interactive output
         process = await asyncio.create_subprocess_exec(
-            claude_path,
-            "--print",  # Output response only
-            "-p", prompt,  # Pass prompt directly
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -84,6 +92,7 @@ async def generate_team_member_response(
     system_prompt: str,
     user_message: str,
     conversation_history: list[dict] | None = None,
+    model: str | None = None,
 ) -> str:
     """
     Generate a response from a team member using Claude CLI.
@@ -129,7 +138,7 @@ async def generate_team_member_response(
     logger.info(f"Generating response for {member_name}")
     logger.debug(f"Prompt length: {len(full_prompt)} chars")
 
-    response = await run_claude_cli(full_prompt)
+    response = await run_claude_cli(full_prompt, model=model)
 
     logger.info(f"Got response from {member_name} ({len(response)} chars)")
 
