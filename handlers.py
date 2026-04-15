@@ -20,6 +20,7 @@ from .context import load_member_context
 from .router import route_message, extract_bot_mention
 from .cli_runner import generate_team_member_response, ClaudeCliError
 from .chat_hub import ChatHub, create_chat_hub, detect_work_request
+from .sanitiser import log_if_suspicious
 from .work_sessions import get_tmux_manager, get_session_manager
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,9 @@ async def handle_chat_hub_message(
     """
     # Remove bot mention from message
     cleaned_message = extract_bot_mention(user_message, bot_user_id)
+
+    # Scan for prompt injection attempts (logs to audit, does NOT block)
+    log_if_suspicious(cleaned_message, source=f"slack:{channel_id}:{thread_ts}")
 
     # Check if this is a work request
     hub = get_chat_hub()
