@@ -170,6 +170,7 @@ class ChatHub:
                 "response": f"Got it. I'll set up a work session for {work_info['target_persona'].title()}.",
                 "task_prompt": task_prompt,
                 "target_persona": work_info["target_persona"],
+                "files": work_info.get("files", []),
             }
 
         # Regular chat - respond as Marcus (with conversation history)

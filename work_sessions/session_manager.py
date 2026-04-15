@@ -31,6 +31,7 @@ class WorkSession:
     close_prompt_shown: bool = False
     thread_ts: Optional[str] = None  # Slack thread for this task
     channel_id: Optional[str] = None  # Slack channel
+    files: list[str] = field(default_factory=list)  # Files this session is working on
 
     @property
     def inactive_minutes(self) -> float:
@@ -103,6 +104,53 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Failed to persist session for {session.member}: {e}")
 
+    @staticmethod
+    def _normalise_file(path: str) -> str:
+        """Normalise a file path for comparison (basename, lowercase)."""
+        # Strip surrounding whitespace and any leading ./
+        p = path.strip().lstrip("./")
+        # Use just the basename for matching — sessions might reference the
+        # same file with different paths (./app.py vs ~/proj/app.py).
+        # This is intentionally lenient to err on the side of warning.
+        return p.split("/")[-1].lower()
+
+    def detect_file_conflicts(
+        self,
+        new_member: str,
+        new_files: list[str],
+    ) -> list[tuple[str, list[str]]]:
+        """
+        Find existing active sessions whose files overlap with new_files.
+
+        Args:
+            new_member: The persona about to start (excluded from conflict check)
+            new_files: Files the new session will work on
+
+        Returns:
+            List of (other_member, overlapping_files) for any conflicts.
+            Empty list if no conflicts.
+        """
+        if not new_files:
+            return []
+
+        new_normalised = {self._normalise_file(f) for f in new_files}
+        conflicts: list[tuple[str, list[str]]] = []
+
+        for member, session in self.active_sessions.items():
+            if member == new_member or not session.files:
+                continue
+            existing_normalised = {self._normalise_file(f) for f in session.files}
+            overlap = new_normalised & existing_normalised
+            if overlap:
+                # Return the original file names for clearer messaging
+                overlapping_originals = [
+                    f for f in session.files
+                    if self._normalise_file(f) in overlap
+                ]
+                conflicts.append((member, overlapping_originals))
+
+        return conflicts
+
     async def start_session(
         self,
         member: str,
@@ -111,6 +159,7 @@ class SessionManager:
         thread_ts: str = None,
         channel_id: str = None,
         working_dir: str = None,
+        files: list[str] | None = None,
     ) -> bool:
         """
         Start a new work session for a persona.
@@ -122,14 +171,32 @@ class SessionManager:
             thread_ts: Slack thread timestamp (for posting updates)
             channel_id: Slack channel ID
             working_dir: Working directory for the session
+            files: List of files this session will work on (used for conflict detection)
 
         Returns:
             True if session started successfully
         """
+        files = files or []
+
         # Check if session already exists
         if member in self.active_sessions:
             logger.warning(f"Session for {member} already exists")
             return False
+
+        # Detect file conflicts with existing active sessions
+        conflicts = self.detect_file_conflicts(member, files)
+        if conflicts:
+            for other_member, overlap in conflicts:
+                logger.warning(
+                    f"File conflict: {member} and {other_member} both targeting "
+                    f"{overlap} — both sessions warned to coordinate"
+                )
+                # Audit log the conflict
+                self.storage.log_event(
+                    "file_conflict",
+                    member=member,
+                    details={"other_member": other_member, "overlapping_files": overlap},
+                )
 
         # Check if tmux session exists
         if not self.tmux.session_exists():
@@ -148,13 +215,19 @@ class SessionManager:
             task_description=task_description,
             thread_ts=thread_ts,
             channel_id=channel_id,
+            files=files,
         )
         self.active_sessions[member] = session
         self._persist(session, status="active")
         self.storage.log_event(
             "session_started",
             member=member,
-            details={"task": task_description, "thread_ts": thread_ts, "channel_id": channel_id},
+            details={
+                "task": task_description,
+                "thread_ts": thread_ts,
+                "channel_id": channel_id,
+                "files": files,
+            },
         )
 
         logger.info(f"Started work session for {member}: {task_description[:50]}...")

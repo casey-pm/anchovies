@@ -130,6 +130,21 @@ async def handle_chat_hub_message(
             tmux.send_to_work_pane(member, f"# New task from Slack:\n{cleaned_message}")
             session_mgr.touch_session(member)
         else:
+            # Detect file conflicts and warn in Slack BEFORE starting
+            files_for_task = result.get("files") if isinstance(result, dict) else []
+            if files_for_task:
+                conflicts = session_mgr.detect_file_conflicts(member, files_for_task)
+                for other_member, overlap in conflicts:
+                    client.chat_postMessage(
+                        channel=channel_id,
+                        thread_ts=thread_ts,
+                        text=(
+                            f":warning: *File conflict warning*: {member.title()} and "
+                            f"{other_member.title()} both targeting `{', '.join(overlap)}`. "
+                            f"Coordinate to avoid clobbering each other's changes."
+                        ),
+                    )
+
             # Start new session
             success = await session_mgr.start_session(
                 member=member,
@@ -137,6 +152,7 @@ async def handle_chat_hub_message(
                 task_prompt=task_prompt,
                 thread_ts=thread_ts,
                 channel_id=channel_id,
+                files=files_for_task or [],
             )
             if not success:
                 client.chat_postMessage(
