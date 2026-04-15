@@ -87,7 +87,6 @@ if sys.argv[3]:
     payload['thread_ts'] = sys.argv[3]
 print(json.dumps(payload))
 " "$SLACK_CHANNEL_ID" "$MESSAGE" "$THREAD_TS")
-fi
 
 # Post to Slack
 RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.postMessage" \

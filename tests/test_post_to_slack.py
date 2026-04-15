@@ -5,6 +5,7 @@ containing special characters that would break naive string interpolation.
 """
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -102,3 +103,56 @@ class TestJsonPayloadConstruction:
         # Must be valid JSON
         parsed = json.loads(result.stdout.strip())
         assert parsed["text"] == tricky
+
+
+class TestShellScriptSyntax:
+    """Verify the actual shell script is syntactically valid."""
+
+    SCRIPT_PATH = SCRIPT_DIR / "post_to_slack.sh"
+
+    def test_bash_syntax_valid(self):
+        """The post_to_slack.sh script must parse without bash syntax errors."""
+        result = subprocess.run(
+            ["bash", "-n", str(self.SCRIPT_PATH)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        assert result.returncode == 0, f"bash syntax error: {result.stderr}"
+
+    def test_spawn_persona_bash_syntax(self):
+        """spawn_persona.sh must also parse without bash syntax errors."""
+        spawn_script = SCRIPT_DIR / "spawn_persona.sh"
+        result = subprocess.run(
+            ["bash", "-n", str(spawn_script)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        assert result.returncode == 0, f"bash syntax error: {result.stderr}"
+
+    def test_start_anchovies_bash_syntax(self):
+        """start_anchovies.sh must also parse without bash syntax errors."""
+        start_script = SCRIPT_DIR / "start_anchovies.sh"
+        result = subprocess.run(
+            ["bash", "-n", str(start_script)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        assert result.returncode == 0, f"bash syntax error: {result.stderr}"
+
+    def test_post_to_slack_rejects_missing_message(self, tmp_path, monkeypatch):
+        """Calling without arguments should fail with usage message."""
+        result = subprocess.run(
+            ["bash", str(self.SCRIPT_PATH)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env={**os.environ, "SLACK_BOT_TOKEN": "xoxb-test", "SLACK_CHANNEL_ID": "C_TEST"},
+        )
+        # Should fail (no message provided)
+        assert result.returncode != 0
+        # Error message should mention message requirement
+        combined = (result.stdout + result.stderr).lower()
+        assert "message required" in combined or "usage" in combined
