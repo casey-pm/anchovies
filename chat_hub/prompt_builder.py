@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .. import config
 from ..context import load_member_context
+from ..git_safety import branch_name
 from .skill_mapper import get_skills_for_task, detect_task_type
 
 # Patterns that indicate a work request (file edits, code changes, etc.)
@@ -380,6 +381,18 @@ def build_task_prompt(
         "- BLOCKED: rm -rf, sudo, shutdown, curl (external URLs), wget",
         "- REQUIRES APPROVAL: pip install, npm install (propose in Slack first)",
         "- If unsure, ASK in Slack before running",
+        "",
+        "### Git Rules (MANDATORY)",
+        f"- You are on branch: `{branch_name(persona, task_description)}`",
+        "- NEVER push to `main` or `master`",
+        "- NEVER merge to `main` or `master` (Casey merges via PR)",
+        "- NEVER force-push (`git push --force`, `-f`, `+branch`)",
+        "- NEVER `git reset --hard` on shared branches",
+        "- NEVER run `git filter-branch` or rewrite shared history",
+        "- Commit only to your feature branch",
+        f"- Use commit footer: `Co-Authored-By: {profile.name} (Anchovies) <anchovies@local>`",
+        "- When done, a PR is auto-created from your branch for Casey to review",
+        "- Casey enforces rebase on main before merging",
         "",
         "## Important",
         "- Focus on the task at hand",

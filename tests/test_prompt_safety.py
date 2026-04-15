@@ -198,3 +198,32 @@ class TestShellCommandRulesInPrompt:
         # Should be in REQUIRES APPROVAL section, not just BLOCKED
         # Just check both pip install and approval appear in close proximity
         assert "approval" in prompt.lower()
+
+
+class TestGitRulesInPrompt:
+    """Every work session prompt should include git safety rules."""
+
+    def test_git_rules_section_present(self):
+        prompt = build_task_prompt(persona="sofia", task_description="fix bug in app.py")
+        assert "Git Rules" in prompt or "GIT RULES" in prompt.upper()
+
+    def test_branch_name_in_prompt(self):
+        """The persona's expected feature branch name should appear in the prompt."""
+        prompt = build_task_prompt(persona="sofia", task_description="fix null processor")
+        assert "sofia/fix-null-processor" in prompt
+
+    def test_never_push_main_in_prompt(self):
+        prompt = build_task_prompt(persona="sofia", task_description="fix bug")
+        assert "main" in prompt
+        # Must say NEVER push to main
+        assert "NEVER push" in prompt or "never push" in prompt.lower()
+
+    def test_never_force_push_in_prompt(self):
+        prompt = build_task_prompt(persona="sofia", task_description="fix bug")
+        assert "force-push" in prompt or "force push" in prompt.lower() or "--force" in prompt
+
+    def test_co_authored_footer_in_prompt(self):
+        prompt = build_task_prompt(persona="sofia", task_description="fix bug")
+        assert "Co-Authored-By" in prompt
+        assert "Sofia" in prompt
+        assert "Anchovies" in prompt
