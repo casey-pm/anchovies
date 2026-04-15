@@ -94,34 +94,69 @@ MEMBER_ALIASES = {
 }
 
 
-def validate_config() -> tuple[bool, list[str]]:
-    """
-    Validate that all required configuration is present.
+import shutil
 
-    Returns:
-        Tuple of (is_valid, list of error messages)
-    """
+
+def _check_slack_credentials() -> list[str]:
+    """Validate Slack credentials are present and well-formed."""
     errors = []
-
     if not SLACK_BOT_TOKEN:
         errors.append("SLACK_BOT_TOKEN is not set")
     elif not SLACK_BOT_TOKEN.startswith("xoxb-"):
         errors.append("SLACK_BOT_TOKEN should start with 'xoxb-'")
-
     if not SLACK_APP_TOKEN:
         errors.append("SLACK_APP_TOKEN is not set (required for Socket Mode)")
     elif not SLACK_APP_TOKEN.startswith("xapp-"):
         errors.append("SLACK_APP_TOKEN should start with 'xapp-'")
-
     if not SLACK_SIGNING_SECRET:
         errors.append("SLACK_SIGNING_SECRET is not set")
+    return errors
 
+
+def _check_paths() -> list[str]:
+    """Validate required directories exist."""
+    errors = []
     if not CONTEXT_BASE.exists():
         errors.append(f"CONTEXT_BASE directory does not exist: {CONTEXT_BASE}")
-
     if not PROFILES_DIR.exists():
         errors.append(f"PROFILES_DIR directory does not exist: {PROFILES_DIR}")
+    elif not any(PROFILES_DIR.glob("profile_*.yaml")):
+        errors.append(f"PROFILES_DIR has no profile_*.yaml files: {PROFILES_DIR}")
+    return errors
 
+
+def _check_external_binaries() -> list[str]:
+    """Validate external CLI tools are installed."""
+    errors = []
+    required = {
+        "tmux": "tmux is required for work session management",
+        CLAUDE_CLI_PATH: f"Claude CLI not found at '{CLAUDE_CLI_PATH}'",
+        "git": "git is required for branch isolation and commits",
+        "gh": "GitHub CLI is required for auto-creating PRs",
+        "python3": "python3 is required for Slack JSON payload construction",
+    }
+    for binary, message in required.items():
+        if shutil.which(binary) is None:
+            errors.append(message)
+    return errors
+
+
+def validate_config(strict: bool = True) -> tuple[bool, list[str]]:
+    """
+    Validate configuration and environment.
+
+    Args:
+        strict: If True, also checks external binaries (tmux, claude CLI,
+                git, gh, python3). If False, only credentials and paths.
+
+    Returns:
+        (is_valid, list of error messages)
+    """
+    errors: list[str] = []
+    errors.extend(_check_slack_credentials())
+    errors.extend(_check_paths())
+    if strict:
+        errors.extend(_check_external_binaries())
     return len(errors) == 0, errors
 
 
