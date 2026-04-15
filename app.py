@@ -10,6 +10,7 @@ Run with: python -m team_forum_bot.app
 import asyncio
 import logging
 import os
+import signal
 import sys
 
 from slack_bolt.async_app import AsyncApp
@@ -17,7 +18,9 @@ from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 
 from . import config
 from . import messages
-from .handlers import handle_team_message
+from .handlers import handle_team_message, conversation_store
+from .storage import get_storage
+from .work_sessions import get_session_manager
 
 # Configure logging
 logging.basicConfig(
@@ -119,6 +122,99 @@ def create_app() -> AsyncApp:
     return app
 
 
+async def flush_state_to_storage():
+    """
+    Persist all in-memory state to SQLite. Called on graceful shutdown.
+
+    Saves: conversation_store (all threads), active sessions, bot_stopped audit event.
+    Returns a summary dict for logging.
+    """
+    storage = get_storage()
+    summary = {"conversations": 0, "sessions": 0}
+
+    # Flush conversation store
+    for thread_ts, messages in conversation_store.items():
+        try:
+            storage.save_conversation(thread_ts, messages)
+            summary["conversations"] += 1
+        except Exception as e:
+            logger.error(f"Failed to persist conversation {thread_ts}: {e}")
+
+    # Session manager already writes through on every change, but re-save
+    # all active sessions just in case.
+    try:
+        mgr = get_session_manager()
+        for member, session in mgr.active_sessions.items():
+            mgr._persist(session)
+            summary["sessions"] += 1
+    except Exception as e:
+        logger.error(f"Failed to persist sessions: {e}")
+
+    # Log the shutdown event itself
+    try:
+        storage.log_event(
+            "bot_stopped",
+            details={
+                "conversations_saved": summary["conversations"],
+                "sessions_saved": summary["sessions"],
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to log shutdown event: {e}")
+
+    return summary
+
+
+async def notify_shutdown(slack_client, summary: dict) -> None:
+    """Post a shutdown notification to Slack. Best-effort — failure is non-fatal."""
+    status_channel = os.getenv("SLACK_STATUS_CHANNEL") or config.SLACK_CHANNEL_ID
+    if not status_channel:
+        logger.warning("No SLACK_STATUS_CHANNEL or SLACK_CHANNEL_ID set — skipping Slack shutdown notification")
+        return
+
+    try:
+        await slack_client.chat_postMessage(
+            channel=status_channel,
+            text=(
+                f":zzz: *Anchovies bot going offline.* "
+                f"Preserved {summary['sessions']} active session(s) and "
+                f"{summary['conversations']} conversation(s). "
+                f"tmux work sessions remain running for recovery on restart."
+            ),
+        )
+    except Exception as e:
+        logger.error(f"Failed to post shutdown notification: {e}")
+
+
+async def graceful_shutdown(handler: AsyncSocketModeHandler, slack_client) -> None:
+    """
+    Graceful shutdown sequence:
+      1. Stop accepting new Slack events
+      2. Flush in-memory state to SQLite
+      3. Post shutdown notification to Slack
+      4. (Do NOT kill tmux sessions — they should survive bot restarts)
+    """
+    logger.info("Graceful shutdown initiated...")
+
+    # Step 1: stop accepting events
+    try:
+        await handler.close_async()
+    except Exception as e:
+        logger.error(f"Error closing Socket Mode handler: {e}")
+
+    # Step 2: flush state
+    summary = await flush_state_to_storage()
+    logger.info(
+        f"Shutdown state flushed: {summary['conversations']} conversations, "
+        f"{summary['sessions']} sessions"
+    )
+
+    # Step 3: notify Slack
+    await notify_shutdown(slack_client, summary)
+
+    logger.info("Graceful shutdown complete")
+
+
 async def async_main():
     """Run the Slack bot in Socket Mode (async)."""
     print("\n" + "=" * 60)
@@ -140,19 +236,75 @@ async def async_main():
     app._bot_user_id = bot_info["user_id"]
     logger.info(f"Bot user ID: {app._bot_user_id}")
 
+    # Log startup and recover any sessions from previous runs
+    storage = get_storage()
+    storage.log_event("bot_started", details={"bot_user_id": app._bot_user_id})
+
+    try:
+        mgr = get_session_manager()
+        stats = mgr.recover_from_storage()
+        if stats["restored"] or stats["crashed"]:
+            logger.info(
+                f"Session recovery: {stats['restored']} restored, "
+                f"{stats['crashed']} crashed, {stats['orphaned_tabs']} orphaned tabs"
+            )
+            storage.log_event("session_recovery", details=stats)
+    except Exception as e:
+        logger.error(f"Session recovery failed (continuing anyway): {e}")
+
     # Start async Socket Mode handler
     handler = AsyncSocketModeHandler(app, config.SLACK_APP_TOKEN)
 
+    # Register signal handlers for graceful shutdown
+    loop = asyncio.get_running_loop()
+    shutdown_event = asyncio.Event()
+
+    def request_shutdown(signum, frame=None):
+        logger.info(f"Received signal {signum}, requesting shutdown...")
+        shutdown_event.set()
+
+    try:
+        loop.add_signal_handler(signal.SIGINT, lambda: shutdown_event.set())
+        loop.add_signal_handler(signal.SIGTERM, lambda: shutdown_event.set())
+    except NotImplementedError:
+        # Windows doesn't support add_signal_handler — fall back to signal.signal
+        signal.signal(signal.SIGINT, request_shutdown)
+        signal.signal(signal.SIGTERM, request_shutdown)
+
     print("Connecting to Slack via Socket Mode...")
-    print("Bot is running! Press Ctrl+C to stop.")
+    print("Bot is running! Press Ctrl+C to stop gracefully.")
     print("Waiting for messages...\n")
 
-    await handler.start_async()
+    # Run handler and wait for shutdown signal concurrently
+    handler_task = asyncio.create_task(handler.start_async())
+    shutdown_task = asyncio.create_task(shutdown_event.wait())
+
+    done, pending = await asyncio.wait(
+        {handler_task, shutdown_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    # Cancel whichever didn't complete
+    for task in pending:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    # Run graceful shutdown sequence
+    await graceful_shutdown(handler, async_client)
 
 
 def main():
     """Entry point — runs the async bot."""
-    asyncio.run(async_main())
+    try:
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        # If asyncio.run catches KeyboardInterrupt before our signal handler,
+        # we still want a clean exit code.
+        logger.info("Interrupted")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
