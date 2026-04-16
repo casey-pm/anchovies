@@ -1,0 +1,26 @@
+# Anchovies Multi-Project Registry
+#
+# Register projects here so personas can work on them without restarting the bot.
+# This file is hot-reloaded — changes take effect on the next Slack message.
+#
+# You can also manage projects via Slack:
+#   @bot projects              — list all projects
+#   @bot add project <name> --context <path>
+#   @bot remove project <name>
+#   @bot set default project <name>
+#
+# Schema:
+#   projects:
+#     <slug>:                         # lowercase, no spaces (used in [slug] tags)
+#       display_name: "Human Name"    # shown in prompts and Slack messages
+#       context_base: "/path/to/dir"  # must contain status/ subdir (auto-created)
+#       working_dir: "/path/to/repo"  # where tmux sessions cd into (defaults to context_base)
+#       description: "Short desc"     # optional
+#       default_branch: "main"        # optional, defaults to "main"
+#       active: true                  # optional, defaults to true
+#
+#   default_project: null             # set to a slug to use when no [tag] is given
+
+projects: {}
+
+default_project: null

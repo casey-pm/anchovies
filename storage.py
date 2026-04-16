@@ -48,6 +48,7 @@ class StoredSession:
     status_updated: bool = False
     slack_posted: bool = False
     close_prompt_shown: bool = False
+    project: Optional[str] = None  # Project slug (None = legacy/no project)
 
 
 @dataclass
@@ -132,6 +133,22 @@ class Storage:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(SCHEMA)
             self._conn.commit()
+        self._migrate_schema()
+
+    def _migrate_schema(self):
+        """Apply any schema migrations for columns added after initial release."""
+        with self._lock:
+            # Check if 'project' column exists on sessions table
+            columns = {
+                row[1]
+                for row in self._conn.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "project" not in columns:
+                self._conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN project TEXT DEFAULT NULL"
+                )
+                self._conn.commit()
+                logger.info("Migrated sessions table: added 'project' column")
 
     def close(self):
         """Close the database connection."""
@@ -219,8 +236,9 @@ class Storage:
                     member, task_description, status,
                     started_at, last_activity,
                     thread_ts, channel_id,
-                    status_updated, slack_posted, close_prompt_shown
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status_updated, slack_posted, close_prompt_shown,
+                    project
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(member) DO UPDATE SET
                     task_description = excluded.task_description,
                     status = excluded.status,
@@ -229,7 +247,8 @@ class Storage:
                     channel_id = excluded.channel_id,
                     status_updated = excluded.status_updated,
                     slack_posted = excluded.slack_posted,
-                    close_prompt_shown = excluded.close_prompt_shown
+                    close_prompt_shown = excluded.close_prompt_shown,
+                    project = excluded.project
                 """,
                 (
                     session.member, session.task_description, session.status,
@@ -237,6 +256,7 @@ class Storage:
                     session.thread_ts, session.channel_id,
                     int(session.status_updated), int(session.slack_posted),
                     int(session.close_prompt_shown),
+                    session.project,
                 ),
             )
             self._conn.commit()
@@ -279,6 +299,11 @@ class Storage:
 
     @staticmethod
     def _row_to_session(row: sqlite3.Row) -> StoredSession:
+        # project column may not exist on old databases (pre-migration)
+        try:
+            project = row["project"]
+        except (IndexError, KeyError):
+            project = None
         return StoredSession(
             member=row["member"],
             task_description=row["task_description"],
@@ -290,6 +315,7 @@ class Storage:
             status_updated=bool(row["status_updated"]),
             slack_posted=bool(row["slack_posted"]),
             close_prompt_shown=bool(row["close_prompt_shown"]),
+            project=project,
         )
 
     # -----------------------------------------------------------------------
