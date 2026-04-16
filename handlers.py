@@ -8,6 +8,7 @@ Handles incoming Slack messages and routes them through the Chat Hub:
 
 import asyncio
 import logging
+import os
 import re
 import time
 from collections import OrderedDict
@@ -49,9 +50,10 @@ MAX_THREADS = 500  # Max threads tracked before LRU eviction
 MAX_MESSAGES_PER_THREAD = 200  # Max messages per thread
 THREAD_TTL_SECONDS = 86400  # 24 hours
 
-# Track chain depth per thread to prevent infinite loops
+# Track summon chain depth per thread to prevent runaway cross-talk costs.
+# Configurable via MAX_SUMMON_DEPTH env var (Casey's default: 3).
 chain_depth: dict[str, int] = {}
-MAX_CHAIN_DEPTH = 10  # Safety limit for cross-talk
+MAX_CHAIN_DEPTH = int(os.getenv("MAX_SUMMON_DEPTH", "3"))
 
 
 def get_conversation_history(thread_ts: str) -> list[dict]:
@@ -102,6 +104,26 @@ async def handle_chat_hub_message(
         # Work request detected - spawn persona tab
         member = result["target_persona"]
         task_prompt = result["task_prompt"]
+
+        # Budget gate: refuse to spawn new work sessions when daily cap is hit.
+        # (Cheap chat responses are still allowed below.)
+        from .cost_tracking import is_budget_exceeded, get_today_spend, DAILY_BUDGET_USD
+        if is_budget_exceeded():
+            spend, _ = get_today_spend()
+            client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=(
+                    f":no_entry: Daily Claude budget reached "
+                    f"(${spend:.2f} / ${DAILY_BUDGET_USD:.2f}). "
+                    f"No new work sessions until midnight."
+                ),
+            )
+            logger.warning(
+                f"Budget exceeded — refused work session for {member} "
+                f"(${spend:.2f}/${DAILY_BUDGET_USD:.2f})"
+            )
+            return True
 
         # Post acknowledgment to Slack
         client.chat_postMessage(
@@ -410,27 +432,45 @@ async def handle_team_message(
             await asyncio.sleep(0.5)
 
 
-def detect_mentions_in_response(response: str) -> list[str]:
+def detect_summons_in_response(response: str) -> list[str]:
     """
-    Detect @mentions of team members in a response.
+    Detect explicit /summon commands in a persona's response.
+
+    Cross-talk is now opt-in (Casey's decision in makeover Q&A).
+    A persona must explicitly write `/summon <name>` to bring another
+    team member into the conversation. Plain @mentions are NOT enough —
+    they're conversational only and don't trigger anything.
+
+    Examples that summon Sofia:
+        "Let me check with /summon sofia about this"
+        "/summon sofia, can you weigh in?"
+
+    Examples that do NOT summon (plain mentions, no trigger):
+        "Sofia and I worked on this last week"
+        "Ask @sofia later"
 
     Args:
         response: The response text to scan
 
     Returns:
-        List of mentioned team member names (lowercase)
+        List of summoned team member names (lowercase, deduplicated, in order)
     """
-    mentioned = []
+    summoned = []
     all_names = config.TEAM_MEMBERS + list(config.MEMBER_ALIASES.keys())
-    pattern = r"@(" + "|".join(re.escape(name) for name in all_names) + r")\b"
+    # /summon must be followed by a name (with optional comma/punct after)
+    pattern = r"/summon\s+(" + "|".join(re.escape(name) for name in all_names) + r")\b"
 
-    matches = re.findall(pattern, response, re.IGNORECASE)
-    for match in matches:
-        member = config.get_member_name(match)
-        if member and member not in mentioned:
-            mentioned.append(member)
+    for match in re.finditer(pattern, response, re.IGNORECASE):
+        member = config.get_member_name(match.group(1))
+        if member and member not in summoned:
+            summoned.append(member)
 
-    return mentioned
+    return summoned
+
+
+# Backwards-compatible alias — some tests/code may still reference the old name.
+# It now requires /summon and only finds explicit summons.
+detect_mentions_in_response = detect_summons_in_response
 
 
 async def process_member_response(
@@ -508,11 +548,12 @@ async def process_member_response(
         # Add response to conversation history
         add_to_conversation(thread_ts, "assistant", response, member_name)
 
-        # Check for cross-talk: did this member @mention another team member?
-        mentioned_members = detect_mentions_in_response(response)
-        if mentioned_members:
-            logger.info(f"{profile.name} mentioned: {mentioned_members}")
-            # Trigger responses from mentioned members
+        # Check for cross-talk: did this member /summon another team member?
+        # Cross-talk is opt-in only — plain @mentions don't trigger anymore.
+        summoned_members = detect_summons_in_response(response)
+        if summoned_members:
+            logger.info(f"{profile.name} summoned: {summoned_members}")
+            # Trigger responses from summoned members
             await asyncio.sleep(0.5)  # Brief pause before crosstalk
             await handle_team_message(
                 client=client,

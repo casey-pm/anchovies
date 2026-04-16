@@ -77,6 +77,14 @@ async def run_claude_cli(
         if not response:
             raise ClaudeCliError("Claude CLI returned empty response")
 
+        # Record the cost for budget tracking. Best-effort — never fail the
+        # call if cost recording fails.
+        try:
+            from . import cost_tracking
+            cost_tracking.record_call(prompt, response, model=selected_model)
+        except Exception as e:
+            logger.error(f"Cost tracking failed: {e}")
+
         return response
 
     except asyncio.CancelledError:
