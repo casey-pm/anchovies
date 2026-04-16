@@ -42,13 +42,18 @@ class MemberContext:
     questions_content: str = ""
     instructions_content: str = ""
 
-    def build_system_prompt(self) -> str:
+    def build_system_prompt(self, project_name: str | None = None) -> str:
         """
         Build the system prompt for this team member.
+
+        Args:
+            project_name: If set, use this instead of config.PROJECT_NAME
+                          in the identity line. Enables multi-project support.
 
         Default loads: profile (with job_summary) + memory + status
         (Optimized for token efficiency while maintaining team context)
         """
+        pname = project_name or config.PROJECT_NAME
         parts = [
             f"You are {self.profile.name}",
         ]
@@ -57,9 +62,9 @@ class MemberContext:
             parts[0] += f' ("{self.profile.nickname}")'
 
         if self.profile.role:
-            parts[0] += f", {self.profile.role} on the {config.PROJECT_NAME} team."
+            parts[0] += f", {self.profile.role} on the {pname} team."
         else:
-            parts[0] += f" on the {config.PROJECT_NAME} team."
+            parts[0] += f" on the {pname} team."
 
         # Personality
         if self.profile.personality:
@@ -196,7 +201,7 @@ def load_file_content(path: Path) -> str:
         return ""
 
 
-def load_member_context(member_name: str) -> MemberContext:
+def load_member_context(member_name: str, project: str | None = None) -> MemberContext:
     """
     Load complete context for a team member.
 
@@ -205,22 +210,37 @@ def load_member_context(member_name: str) -> MemberContext:
 
     Args:
         member_name: Lowercase team member name
+        project: Optional project slug. When set, status is loaded from the
+                 project's context_base instead of config.CONTEXT_BASE.
+                 Memory is always persona-level (not project-specific).
 
     Returns:
         MemberContext with profile and context files
     """
     profile = load_profile(member_name)
 
-    # Load memory file (lessons learned, persistent knowledge)
+    # Memory is always persona-level — NOT project-specific.
+    # A persona's lessons learned apply across all projects.
     memory_path = config.BOT_DIR / "memory" / f"memory_{member_name}.md"
     memory_content = load_file_content(memory_path)
 
+    # Resolve context base: project-specific or global
+    context_base = config.CONTEXT_BASE
+    if project:
+        try:
+            from .project_registry import get_project_registry
+            proj = get_project_registry().get(project)
+            if proj:
+                context_base = proj.context_base
+        except Exception:
+            pass  # Fall back to global context_base
+
     # Load status file (loaded by default)
-    status_path = config.CONTEXT_BASE / "status" / f"status_{member_name}.md"
+    status_path = context_base / "status" / f"status_{member_name}.md"
 
     # Questions and instructions not loaded by default (can add later if needed)
-    questions_path = config.CONTEXT_BASE / "questions" / f"questions_for_{member_name}.md"
-    instructions_path = config.CONTEXT_BASE / "instructions" / f"instructions_{member_name}.md"
+    questions_path = context_base / "questions" / f"questions_for_{member_name}.md"
+    instructions_path = context_base / "instructions" / f"instructions_{member_name}.md"
 
     return MemberContext(
         profile=profile,

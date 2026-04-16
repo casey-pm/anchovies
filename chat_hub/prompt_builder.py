@@ -209,6 +209,7 @@ def build_task_prompt(
     context: str = "",
     thread_history: str = "",
     thread_ts: str = "",
+    project: str | None = None,
 ) -> str:
     """
     Build a complete task prompt for a work session.
@@ -220,13 +221,27 @@ def build_task_prompt(
         context: Additional context
         thread_history: Slack thread history if available
         thread_ts: Slack thread timestamp for replying to the task thread
+        project: Optional project slug for multi-project support
 
     Returns:
         Formatted task prompt string
     """
-    # Load persona context
-    member_context = load_member_context(persona)
+    # Load persona context (project-aware: loads project-specific status)
+    member_context = load_member_context(persona, project=project)
     profile = member_context.profile
+
+    # Resolve project display name
+    project_display = config.PROJECT_NAME
+    project_context_base = config.CONTEXT_BASE
+    if project:
+        try:
+            from ..project_registry import get_project_registry
+            proj = get_project_registry().get(project)
+            if proj:
+                project_display = proj.display_name
+                project_context_base = proj.context_base
+        except Exception:
+            pass
 
     # Detect task type and get relevant skills
     task_type = detect_task_type(task_description)
@@ -237,7 +252,7 @@ def build_task_prompt(
         f"# Work Session: {profile.name}",
         "",
         "## Your Identity",
-        f'You are {profile.name} ("{profile.nickname}"), {profile.role} on the {config.PROJECT_NAME} team.',
+        f'You are {profile.name} ("{profile.nickname}"), {profile.role} on the {project_display} team.',
     ]
 
     # Add personality
@@ -331,7 +346,7 @@ def build_task_prompt(
             parts.append(f"- {skill}")
 
     # Completion instructions - use paths from config
-    status_path = config.CONTEXT_BASE / "status" / f"status_{persona}.md"
+    status_path = project_context_base / "status" / f"status_{persona}.md"
 
     parts.extend([
         "",

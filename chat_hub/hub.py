@@ -21,8 +21,10 @@ from .skill_mapper import get_skills_for_task
 
 logger = logging.getLogger(__name__)
 
-# Chat Hub system prompt for Marcus
-CHAT_HUB_SYSTEM_PROMPT = f"""You are Marcus ("Boss"), BI Manager and coordinator of the {config.PROJECT_NAME} team.
+def _build_chat_hub_system_prompt(project_name: str | None = None) -> str:
+    """Build Marcus's system prompt. Evaluated at call time so PROJECT_NAME can change."""
+    pname = project_name or config.PROJECT_NAME
+    return f"""You are Marcus ("Boss"), BI Manager and coordinator of the {pname} team.
 
 ## Your Role in Chat Hub
 You are the central coordinator for team communication. Your responsibilities:
@@ -42,12 +44,6 @@ You CAN read/write files and run commands directly.
 To delegate tasks to other team members from a work session, use the spawn script:
 ```bash
 ~/paradise_brain/anchovies/scripts/spawn_persona.sh <persona_name>
-```
-
-Example:
-```bash
-~/paradise_brain/anchovies/scripts/spawn_persona.sh sofia
-~/paradise_brain/anchovies/scripts/spawn_persona.sh leo
 ```
 
 This creates a new tmux tab for that persona. Do NOT try to run `claude --system-prompt` directly - use the spawn script instead.
@@ -85,18 +81,52 @@ class ChatHub:
     def __init__(self):
         self.persona = config.CHAT_HUB_PERSONA  # marcus by default
         self.context = load_member_context(self.persona)
-        self.system_prompt = CHAT_HUB_SYSTEM_PROMPT
         self.conversation_history: list[dict] = []
 
-    def get_system_prompt(self) -> str:
-        """Get the full system prompt for Chat Hub."""
-        # Combine Chat Hub prompt with Marcus's context
+    def get_system_prompt(self, project: str | None = None) -> str:
+        """Get the full system prompt for Chat Hub, optionally project-aware."""
+        # Resolve project display name
+        project_name = None
+        if project:
+            try:
+                from ..project_registry import get_project_registry
+                proj = get_project_registry().get(project)
+                if proj:
+                    project_name = proj.display_name
+            except Exception:
+                pass
+
+        # Build the base prompt (evaluated at call time, not import time)
         parts = [
-            self.system_prompt,
+            _build_chat_hub_system_prompt(project_name=project_name),
             "",
             "## Your Current Status",
             self.context.status_content[:1500] if self.context.status_content else "(No status loaded)",
         ]
+
+        # If a project is specified, add project-specific context
+        if project and project_name:
+            try:
+                from ..project_registry import get_project_registry
+                proj = get_project_registry().get(project)
+                if proj:
+                    parts.append("")
+                    parts.append(f"## Active Project: {proj.display_name}")
+                    if proj.description:
+                        parts.append(f"Description: {proj.description}")
+                    parts.append(f"Working directory: `{proj.working_dir}`")
+                    # Load project-specific status for active members
+                    status_dir = proj.context_base / "status"
+                    if status_dir.exists():
+                        for status_file in sorted(status_dir.glob("status_*.md")):
+                            member = status_file.stem.replace("status_", "")
+                            content = status_file.read_text()[:300]
+                            if content.strip():
+                                parts.append(f"\n### {member.title()}'s Status")
+                                parts.append(content)
+            except Exception:
+                pass
+
         return "\n".join(parts)
 
     async def process_message(
@@ -105,6 +135,7 @@ class ChatHub:
         sender: str = "user",
         thread_ts: str = "",
         conversation_history: list[dict] = None,
+        project: str | None = None,
     ) -> dict:
         """
         Process an incoming message and return response info.
@@ -138,6 +169,7 @@ class ChatHub:
                 ),
                 "task_prompt": None,
                 "target_persona": work_info["target_persona"],
+                "project": project,
             }
 
         if work_info["is_work_request"]:
@@ -163,6 +195,7 @@ class ChatHub:
                 context=message,
                 thread_ts=thread_ts,
                 thread_history=history_context,
+                project=project,
             )
 
             return {
@@ -171,26 +204,30 @@ class ChatHub:
                 "task_prompt": task_prompt,
                 "target_persona": work_info["target_persona"],
                 "files": work_info.get("files", []),
+                "project": project,
             }
 
         # Regular chat - respond as Marcus (with conversation history)
-        response = await self._get_chat_response(message, conversation_history)
+        response = await self._get_chat_response(message, conversation_history, project=project)
 
         return {
             "type": "chat",
             "response": response,
             "task_prompt": None,
             "target_persona": None,
+            "project": project,
         }
 
-    async def _get_chat_response(self, message: str, conversation_history: list[dict] = None) -> str:
+    async def _get_chat_response(
+        self, message: str, conversation_history: list[dict] = None, project: str | None = None,
+    ) -> str:
         """
         Get a chat response from Marcus using Claude CLI (async).
 
         Includes conversation history for context continuity.
         """
-        # Build the prompt with conversation history
-        parts = [self.get_system_prompt(), "", "---", ""]
+        # Build the prompt with conversation history (project-aware)
+        parts = [self.get_system_prompt(project=project), "", "---", ""]
 
         # Add conversation history if available
         if conversation_history:
