@@ -110,7 +110,7 @@ async def handle_chat_hub_message(
         from .cost_tracking import is_budget_exceeded, get_today_spend, DAILY_BUDGET_USD
         if is_budget_exceeded():
             spend, _ = get_today_spend()
-            client.chat_postMessage(
+            await client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=(
@@ -126,7 +126,7 @@ async def handle_chat_hub_message(
             return True
 
         # Post acknowledgment to Slack
-        client.chat_postMessage(
+        await client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
             text=f":hammer_and_wrench: *Marcus:* {result['response']}\n\n_Check the `{member}` tab in tmux for the work session._",
@@ -138,14 +138,14 @@ async def handle_chat_hub_message(
 
         if not tmux.session_exists():
             # No tmux session - warn user
-            client.chat_postMessage(
+            await client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=":warning: tmux session not running. Start it with `./scripts/start_anchovies.sh`",
             )
         elif session_mgr.has_session(member):
             # Session already exists - send task to existing session
-            client.chat_postMessage(
+            await client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=f":warning: {member.title()} already has an active session. Sending task to existing tab.",
@@ -158,7 +158,7 @@ async def handle_chat_hub_message(
             if files_for_task:
                 conflicts = session_mgr.detect_file_conflicts(member, files_for_task)
                 for other_member, overlap in conflicts:
-                    client.chat_postMessage(
+                    await client.chat_postMessage(
                         channel=channel_id,
                         thread_ts=thread_ts,
                         text=(
@@ -178,7 +178,7 @@ async def handle_chat_hub_message(
                 files=files_for_task or [],
             )
             if not success:
-                client.chat_postMessage(
+                await client.chat_postMessage(
                     channel=channel_id,
                     thread_ts=thread_ts,
                     text=f":x: Failed to spawn work session for {member.title()}.",
@@ -192,7 +192,7 @@ async def handle_chat_hub_message(
     profile = context.profile
 
     # Post "thinking" message
-    thinking_response = client.chat_postMessage(
+    thinking_response = await client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
         blocks=messages.build_thinking_message(
@@ -219,7 +219,7 @@ async def handle_chat_hub_message(
             )
 
         # Update the thinking message with the response
-        client.chat_update(
+        await client.chat_update(
             channel=channel_id,
             ts=thinking_ts,
             blocks=messages.build_response_message(
@@ -238,7 +238,7 @@ async def handle_chat_hub_message(
 
     except Exception as e:
         logger.error(f"Error in Chat Hub response: {e}")
-        client.chat_update(
+        await client.chat_update(
             channel=channel_id,
             ts=thinking_ts,
             blocks=messages.build_error_message(
@@ -329,7 +329,7 @@ async def handle_team_message(
         if not limiter.allow(user_id=user_id):
             logger.warning(f"Rate limit hit for user {user_id} in {channel_id}")
             try:
-                client.chat_postMessage(
+                await client.chat_postMessage(
                     channel=channel_id,
                     thread_ts=thread_ts,
                     text=(
@@ -355,7 +355,7 @@ async def handle_team_message(
 
     # Check for help request
     if cleaned_message.lower().strip() in ("help", "?", ""):
-        client.chat_postMessage(
+        await client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
             blocks=messages.build_help_message(),
@@ -500,7 +500,7 @@ async def process_member_response(
     profile = context.profile
 
     # Post "thinking" message
-    thinking_response = client.chat_postMessage(
+    thinking_response = await client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
         blocks=messages.build_thinking_message(
@@ -534,7 +534,7 @@ async def process_member_response(
         )
 
         # Update the thinking message with the response
-        client.chat_update(
+        await client.chat_update(
             channel=channel_id,
             ts=thinking_ts,
             blocks=messages.build_response_message(
@@ -569,7 +569,7 @@ async def process_member_response(
 
     except ClaudeCliError as e:
         logger.error(f"Claude CLI error for {member_name}: {e}")
-        client.chat_update(
+        await client.chat_update(
             channel=channel_id,
             ts=thinking_ts,
             blocks=messages.build_error_message(
@@ -581,7 +581,7 @@ async def process_member_response(
 
     except Exception as e:
         logger.error(f"Unexpected error for {member_name}: {e}")
-        client.chat_update(
+        await client.chat_update(
             channel=channel_id,
             ts=thinking_ts,
             blocks=messages.build_error_message(
