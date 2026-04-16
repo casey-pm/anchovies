@@ -207,40 +207,65 @@ claude && exit 1
         logger.info(f"Spawned work tab for '{member}'")
         return True
 
+    def _get_pane_command(self, pane_target: str) -> str:
+        """Get the current command running in a tmux pane (e.g., 'bash', 'claude')."""
+        result = self._run_tmux(
+            "display-message", "-p", "-t", pane_target, "#{pane_current_command}",
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return ""
+
     async def _wait_for_claude_ready(
         self, pane_target: str, timeout: int = 60, poll_interval: float = 2.0
     ) -> bool:
         """
-        Poll tmux pane content until Claude CLI shows its ready prompt.
+        Wait for Claude CLI to start in a tmux pane.
 
-        Looks for indicators that Claude has finished loading:
-        - The '>' prompt character at start of a line
-        - "How can I help" or "What would you like" text
+        Claude Code uses a TUI that doesn't render as plain text in
+        tmux capture-pane. Instead, we check the pane's running process:
+        - Poll pane_current_command until it shows 'claude' (process started)
+        - Then wait a minimum settle time for Claude to fully initialize
+        - Verify the process is still 'claude' (didn't crash immediately)
 
         Args:
             pane_target: tmux pane identifier (e.g., "anchovies:sofia")
-            timeout: Max seconds to wait before giving up
+            timeout: Max seconds to wait for claude process to appear
             poll_interval: Seconds between polls
 
         Returns:
-            True if Claude is ready, False if timeout reached
+            True if Claude is running in the pane, False if timeout or crash
         """
-        # Pattern matching Claude CLI ready indicators
-        ready_pattern = re.compile(
-            r"(^>\s|How can I help|What would you like|What can I help)",
-            re.MULTILINE | re.IGNORECASE,
-        )
+        SETTLE_SECONDS = 5  # Minimum wait after process detected
 
         start = time.time()
+
+        # Phase 1: Wait for the claude process to appear
         while time.time() - start < timeout:
-            content = self.get_pane_content(pane_target, lines=10)
-            if ready_pattern.search(content):
+            cmd = self._get_pane_command(pane_target)
+            if "claude" in cmd.lower():
                 elapsed = time.time() - start
-                logger.info(f"Claude ready in {pane_target} after {elapsed:.1f}s")
-                return True
+                logger.info(f"Claude process detected in {pane_target} after {elapsed:.1f}s")
+
+                # Phase 2: Settle time — let Claude fully initialize
+                await asyncio.sleep(SETTLE_SECONDS)
+
+                # Phase 3: Verify it's still running (didn't crash during init)
+                cmd_after = self._get_pane_command(pane_target)
+                if "claude" in cmd_after.lower():
+                    logger.info(f"Claude confirmed running in {pane_target}")
+                    return True
+                else:
+                    logger.warning(
+                        f"Claude crashed during init in {pane_target} "
+                        f"(was 'claude', now '{cmd_after}')"
+                    )
+                    return False
+
             await asyncio.sleep(poll_interval)
 
-        logger.warning(f"Claude not ready in {pane_target} after {timeout}s")
+        logger.warning(f"Claude process not detected in {pane_target} after {timeout}s")
         return False
 
     def _write_prompt_file(self, member: str, prompt: str) -> Path:

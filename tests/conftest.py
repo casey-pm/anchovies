@@ -195,12 +195,16 @@ def mock_tmux():
     def get_pane_content(pane_target, lines=50):
         return "> "  # Default: Claude is ready
 
+    def get_pane_command(pane_target):
+        return "claude"  # Default: Claude is running
+
     tmux.session_exists = MagicMock(side_effect=session_exists)
     tmux.spawn_persona_tab = MagicMock(side_effect=spawn_persona_tab)
     tmux.persona_tab_exists = MagicMock(side_effect=persona_tab_exists)
     tmux.close_persona_tab = MagicMock(side_effect=close_persona_tab)
     tmux.list_active_tabs = MagicMock(side_effect=list_active_tabs)
     tmux.get_pane_content = MagicMock(side_effect=get_pane_content)
+    tmux._get_pane_command = MagicMock(side_effect=get_pane_command)
     tmux.send_to_work_pane = MagicMock(return_value=True)
     tmux.send_to_chat_pane = MagicMock(return_value=True)
 

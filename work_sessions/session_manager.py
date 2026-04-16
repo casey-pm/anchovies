@@ -462,11 +462,11 @@ class SessionManager:
 
     def check_pane_alive(self, member: str) -> bool:
         """
-        Check if a persona's Claude CLI process is still alive and responsive.
+        Check if a persona's Claude CLI process is still alive.
 
-        We look at the pane content — if it contains a Claude ready indicator
-        or recent activity, it's alive. If it shows only a shell prompt or is
-        empty, the Claude process has exited (crashed or was killed).
+        Uses tmux's pane_current_command to check what process is running.
+        Claude Code uses a TUI that doesn't render as plain text in
+        tmux capture-pane, so we check the process name instead.
 
         Args:
             member: The persona name
@@ -478,19 +478,20 @@ class SessionManager:
             return False
 
         pane_target = f"{self.tmux.session_name}:{member}"
-        content = self.tmux.get_pane_content(pane_target, lines=20)
 
+        # Check what process is running in the pane
+        try:
+            pane_cmd = self.tmux._get_pane_command(pane_target)
+            if "claude" in pane_cmd.lower():
+                return True
+        except Exception:
+            pass
+
+        # If we can't determine the process or it's not claude, check pane text
+        # as a fallback (some environments may not support pane_current_command)
+        content = self.tmux.get_pane_content(pane_target, lines=20)
         if not content.strip():
             return False
-
-        # Claude ready/active indicators
-        claude_patterns = re.compile(
-            r"(^>\s|How can I help|What would you like|What can I help|"
-            r"Human:|Assistant:|thinking|Let me|I'll)",
-            re.MULTILINE | re.IGNORECASE,
-        )
-        if claude_patterns.search(content):
-            return True
 
         # Shell prompt indicators (Claude has exited to the shell)
         shell_patterns = re.compile(

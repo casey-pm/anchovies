@@ -110,21 +110,33 @@ tmux new-window -t $SESSION -n "$PERSONA" -c "$PARADISE_BRAIN"
 tmux send-keys -t $SESSION:$PERSONA "claude" Enter
 
 # Wait for Claude CLI to be ready (poll instead of fixed sleep)
+# Wait for Claude CLI process to start (check pane_current_command, not pane text)
+# Claude Code uses a TUI that doesn't render as plain text in tmux capture-pane
 echo "Waiting for Claude to start..."
 TIMEOUT=60
 ELAPSED=0
 POLL_INTERVAL=2
 READY=false
+SETTLE=5
 
 while [[ $ELAPSED -lt $TIMEOUT ]]; do
-    # Capture the last 10 lines of the pane
-    PANE_CONTENT=$(tmux capture-pane -t $SESSION:$PERSONA -p -S -10 2>/dev/null || echo "")
+    # Check what process is running in the pane
+    PANE_CMD=$(tmux display-message -p -t $SESSION:$PERSONA "#{pane_current_command}" 2>/dev/null || echo "")
 
-    # Check for Claude ready indicators
-    if echo "$PANE_CONTENT" | grep -qiE '(^>\s|How can I help|What would you like|What can I help)'; then
-        READY=true
-        echo -e "${GREEN}Claude ready after ${ELAPSED}s${NC}"
-        break
+    if echo "$PANE_CMD" | grep -qi "claude"; then
+        echo -e "${GREEN}Claude process detected after ${ELAPSED}s, settling...${NC}"
+        sleep $SETTLE
+        # Verify it's still running (didn't crash during init)
+        PANE_CMD_AFTER=$(tmux display-message -p -t $SESSION:$PERSONA "#{pane_current_command}" 2>/dev/null || echo "")
+        if echo "$PANE_CMD_AFTER" | grep -qi "claude"; then
+            READY=true
+            echo -e "${GREEN}Claude confirmed running${NC}"
+            break
+        else
+            echo -e "${RED}Claude crashed during init (was claude, now $PANE_CMD_AFTER)${NC}"
+            tmux kill-window -t $SESSION:$PERSONA 2>/dev/null || true
+            exit 1
+        fi
     fi
 
     sleep $POLL_INTERVAL
@@ -132,7 +144,7 @@ while [[ $ELAPSED -lt $TIMEOUT ]]; do
 done
 
 if [[ "$READY" != "true" ]]; then
-    echo -e "${RED}Error: Claude did not start within ${TIMEOUT}s${NC}"
+    echo -e "${RED}Error: Claude process not detected within ${TIMEOUT}s${NC}"
     tmux kill-window -t $SESSION:$PERSONA 2>/dev/null || true
     exit 1
 fi

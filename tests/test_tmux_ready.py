@@ -1,7 +1,8 @@
 """Tests for Claude CLI ready-detection in TmuxManager.
 
-Verifies that spawn_persona_tab polls for Claude's ready indicator
-instead of using a fixed sleep, and handles timeouts correctly.
+Verifies that spawn_persona_tab uses process-based detection
+(pane_current_command) instead of text-based pane capture, since
+Claude Code uses a TUI that doesn't render as plain text.
 """
 
 import asyncio
@@ -17,78 +18,58 @@ from anchovies.work_sessions.tmux_manager import TmuxManager
 def tmux_manager():
     """Create a TmuxManager with mocked tmux commands."""
     manager = TmuxManager(session_name="test_session")
-    # Mock _run_tmux so we don't need actual tmux
     manager._run_tmux = MagicMock(return_value=MagicMock(returncode=0, stdout=""))
-    # Mock session_exists to return True
     manager.session_exists = MagicMock(return_value=True)
-    # Mock persona_tab_exists to return False (no existing tab)
     manager.persona_tab_exists = MagicMock(return_value=False)
-    # Mock close_persona_tab
     manager.close_persona_tab = MagicMock(return_value=True)
+    # Default: _get_pane_command returns "claude" (process is running)
+    manager._get_pane_command = MagicMock(return_value="claude")
     return manager
 
 
 class TestReadyDetection:
-    """Test _wait_for_claude_ready polling logic."""
+    """Test _wait_for_claude_ready process-based polling."""
 
     @pytest.mark.anyio
-    async def test_detects_prompt_character(self, tmux_manager):
-        """Ready when '> ' prompt is found in pane content."""
-        tmux_manager.get_pane_content = MagicMock(return_value="\n> ")
-
+    async def test_detects_claude_process(self, tmux_manager):
+        """Ready when pane_current_command shows 'claude'."""
+        tmux_manager._get_pane_command = MagicMock(return_value="claude")
         result = await tmux_manager._wait_for_claude_ready(
             "test_session:sofia", timeout=10, poll_interval=0.1
         )
         assert result is True
 
     @pytest.mark.anyio
-    async def test_detects_how_can_i_help(self, tmux_manager):
-        """Ready when 'How can I help' text is found."""
-        tmux_manager.get_pane_content = MagicMock(
-            return_value="Welcome to Claude!\nHow can I help you today?"
-        )
-
+    async def test_detects_claude_with_path(self, tmux_manager):
+        """Ready when command is a full path like '/usr/bin/claude'."""
+        tmux_manager._get_pane_command = MagicMock(return_value="/usr/bin/claude")
         result = await tmux_manager._wait_for_claude_ready(
             "test_session:sofia", timeout=10, poll_interval=0.1
         )
         assert result is True
 
     @pytest.mark.anyio
-    async def test_detects_what_can_i_help(self, tmux_manager):
-        """Ready when 'What can I help' text is found."""
-        tmux_manager.get_pane_content = MagicMock(
-            return_value="What can I help you with?"
-        )
-
-        result = await tmux_manager._wait_for_claude_ready(
-            "test_session:sofia", timeout=10, poll_interval=0.1
-        )
-        assert result is True
-
-    @pytest.mark.anyio
-    async def test_timeout_returns_false(self, tmux_manager):
-        """Returns False when Claude doesn't become ready within timeout."""
-        # Pane always shows loading, never ready
-        tmux_manager.get_pane_content = MagicMock(return_value="Loading...")
-
+    async def test_timeout_when_bash_only(self, tmux_manager):
+        """Times out when the pane stays on bash (claude never starts)."""
+        tmux_manager._get_pane_command = MagicMock(return_value="bash")
         result = await tmux_manager._wait_for_claude_ready(
             "test_session:sofia", timeout=0.5, poll_interval=0.1
         )
         assert result is False
 
     @pytest.mark.anyio
-    async def test_polls_until_ready(self, tmux_manager):
-        """Polls multiple times before detecting ready state."""
+    async def test_polls_until_process_appears(self, tmux_manager):
+        """Polls multiple times before claude process appears."""
         call_count = 0
 
-        def delayed_ready(*args, **kwargs):
+        def delayed_start(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count < 3:
-                return "Loading Claude..."
-            return "> "
+                return "bash"
+            return "claude"
 
-        tmux_manager.get_pane_content = MagicMock(side_effect=delayed_ready)
+        tmux_manager._get_pane_command = MagicMock(side_effect=delayed_start)
 
         result = await tmux_manager._wait_for_claude_ready(
             "test_session:sofia", timeout=10, poll_interval=0.1
@@ -97,10 +78,28 @@ class TestReadyDetection:
         assert call_count >= 3
 
     @pytest.mark.anyio
-    async def test_empty_pane_not_ready(self, tmux_manager):
-        """Empty pane content is not treated as ready."""
-        tmux_manager.get_pane_content = MagicMock(return_value="")
+    async def test_detects_crash_during_settle(self, tmux_manager):
+        """If claude exits during the settle period, returns False."""
+        call_count = 0
 
+        def crash_during_settle(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                return "claude"  # First check: process exists
+            return "bash"  # After settle: process crashed
+
+        tmux_manager._get_pane_command = MagicMock(side_effect=crash_during_settle)
+
+        result = await tmux_manager._wait_for_claude_ready(
+            "test_session:sofia", timeout=10, poll_interval=0.1
+        )
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_empty_command_not_ready(self, tmux_manager):
+        """Empty pane_current_command means pane isn't functional."""
+        tmux_manager._get_pane_command = MagicMock(return_value="")
         result = await tmux_manager._wait_for_claude_ready(
             "test_session:sofia", timeout=0.5, poll_interval=0.1
         )
@@ -108,12 +107,12 @@ class TestReadyDetection:
 
 
 class TestSpawnWithReadyDetection:
-    """Test that spawn_persona_tab uses ready-detection."""
+    """Test that spawn_persona_tab uses process-based ready-detection."""
 
     @pytest.mark.anyio
-    async def test_spawn_succeeds_when_claude_ready(self, tmux_manager):
-        """Spawn returns True when Claude becomes ready."""
-        tmux_manager.get_pane_content = MagicMock(return_value="> ")
+    async def test_spawn_succeeds_when_claude_running(self, tmux_manager):
+        """Spawn returns True when claude process is detected."""
+        tmux_manager._get_pane_command = MagicMock(return_value="claude")
         tmux_manager._write_prompt_file = MagicMock(return_value="/tmp/test_prompt.txt")
 
         result = await tmux_manager.spawn_persona_tab("sofia", "test task prompt")
@@ -122,17 +121,14 @@ class TestSpawnWithReadyDetection:
     @pytest.mark.anyio
     async def test_spawn_fails_on_timeout(self, tmux_manager):
         """Spawn returns False and cleans up when Claude doesn't start."""
-        tmux_manager.get_pane_content = MagicMock(return_value="Loading...")
         tmux_manager._write_prompt_file = MagicMock(return_value="/tmp/test_prompt.txt")
 
-        # Use a short timeout so the test doesn't take long
         with patch.object(tmux_manager, '_wait_for_claude_ready') as mock_wait:
             mock_wait.return_value = False
 
             result = await tmux_manager.spawn_persona_tab("sofia", "test task prompt")
 
             assert result is False
-            # Should have attempted cleanup
             tmux_manager.close_persona_tab.assert_called_once_with("sofia")
 
     @pytest.mark.anyio
@@ -148,3 +144,12 @@ class TestSpawnWithReadyDetection:
         """spawn_persona_tab should be an async method."""
         import inspect
         assert inspect.iscoroutinefunction(TmuxManager.spawn_persona_tab)
+
+    @pytest.mark.anyio
+    async def test_uses_process_detection_not_text(self):
+        """The ready-detection should use _get_pane_command, not pane text patterns."""
+        import inspect
+        source = inspect.getsource(TmuxManager._wait_for_claude_ready)
+        assert "_get_pane_command" in source
+        # Should NOT rely on text patterns for primary detection
+        assert "How can I help" not in source
