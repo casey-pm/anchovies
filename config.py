@@ -37,10 +37,15 @@ PROTECTED_FILES: list[str] = [p.strip() for p in _protected_raw.split(",") if p.
 # Paths
 BOT_DIR = Path(__file__).parent  # anchovies/
 PROJECT_ROOT = BOT_DIR.parent  # paradise_brain/
-CONTEXT_BASE = Path(os.getenv(
-    "CONTEXT_BASE",
-    str(PROJECT_ROOT / "Domain_360_report_agent_Papaya" / "Domain_360_report_enhancements_1")
-))
+# Context base — where status files, question files, and instructions live.
+# Defaults to the anchovies directory itself. Set CONTEXT_BASE env var to
+# point to a specific project's context directory.
+_context_default = str(BOT_DIR)
+_context_legacy = str(PROJECT_ROOT / "Domain_360_report_agent_Papaya" / "Domain_360_report_enhancements_1")
+# Use legacy path if it exists and no env var is set, for backwards compatibility
+if not os.getenv("CONTEXT_BASE") and Path(_context_legacy).exists():
+    _context_default = _context_legacy
+CONTEXT_BASE = Path(os.getenv("CONTEXT_BASE", _context_default))
 # Profiles are now in the same folder as the bot
 PROFILES_DIR = Path(os.getenv(
     "PROFILES_DIR",
@@ -65,6 +70,11 @@ WORK_MODEL = os.getenv("WORK_MODEL", "sonnet")
 # tmux Configuration
 TMUX_SESSION_NAME = os.getenv("TMUX_SESSION_NAME", "anchovies")
 CHAT_PANE_WIDTH = int(os.getenv("CHAT_PANE_WIDTH", "35"))  # Percentage
+
+# Project identity — used in system prompts and persona introductions.
+# Set this to whatever project the team is currently working on.
+# Defaults to a generic label so it works out of the box.
+PROJECT_NAME = os.getenv("PROJECT_NAME", "the current project")
 
 # Session Management
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "10"))

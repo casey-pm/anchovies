@@ -237,7 +237,7 @@ def build_task_prompt(
         f"# Work Session: {profile.name}",
         "",
         "## Your Identity",
-        f'You are {profile.name} ("{profile.nickname}"), {profile.role} on the Domain 360 project team.',
+        f'You are {profile.name} ("{profile.nickname}"), {profile.role} on the {config.PROJECT_NAME} team.',
     ]
 
     # Add personality

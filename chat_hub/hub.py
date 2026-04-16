@@ -22,7 +22,7 @@ from .skill_mapper import get_skills_for_task
 logger = logging.getLogger(__name__)
 
 # Chat Hub system prompt for Marcus
-CHAT_HUB_SYSTEM_PROMPT = """You are Marcus ("Boss"), BI Manager and coordinator of the Domain 360 project team.
+CHAT_HUB_SYSTEM_PROMPT = f"""You are Marcus ("Boss"), BI Manager and coordinator of the {config.PROJECT_NAME} team.
 
 ## Your Role in Chat Hub
 You are the central coordinator for team communication. Your responsibilities:

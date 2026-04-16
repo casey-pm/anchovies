@@ -57,9 +57,9 @@ class MemberContext:
             parts[0] += f' ("{self.profile.nickname}")'
 
         if self.profile.role:
-            parts[0] += f", {self.profile.role} on the Domain 360 project team."
+            parts[0] += f", {self.profile.role} on the {config.PROJECT_NAME} team."
         else:
-            parts[0] += " on the Domain 360 project team."
+            parts[0] += f" on the {config.PROJECT_NAME} team."
 
         # Personality
         if self.profile.personality:
