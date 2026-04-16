@@ -71,6 +71,7 @@ async def handle_chat_hub_message(
     thread_ts: str,
     user_message: str,
     bot_user_id: str,
+    project: str | None = None,
 ) -> bool:
     """
     Process a message through the Chat Hub.
@@ -98,7 +99,7 @@ async def handle_chat_hub_message(
     # Check if this is a work request
     hub = get_chat_hub()
     history = get_conversation_history(thread_ts)
-    result = await hub.process_message(cleaned_message, thread_ts=thread_ts, conversation_history=history)
+    result = await hub.process_message(cleaned_message, thread_ts=thread_ts, conversation_history=history, project=project)
 
     if result["type"] == "work_request":
         # Work request detected - spawn persona tab
@@ -176,6 +177,7 @@ async def handle_chat_hub_message(
                 thread_ts=thread_ts,
                 channel_id=channel_id,
                 files=files_for_task or [],
+                project=result.get("project"),
             )
             if not success:
                 await client.chat_postMessage(
@@ -353,6 +355,21 @@ async def handle_team_message(
     # Remove bot mention from message
     cleaned_message = extract_bot_mention(user_message, bot_user_id)
 
+    # Extract [project] tag early so it's available for all code paths
+    from .router import extract_project_tag
+    message_project, cleaned_message = extract_project_tag(cleaned_message)
+
+    # If no tag, check for default project from registry
+    if message_project is None:
+        try:
+            from .project_registry import get_project_registry
+            registry = get_project_registry()
+            default = registry.get_default()
+            if default:
+                message_project = default.name
+        except Exception:
+            pass
+
     # Check for help request
     if cleaned_message.lower().strip() in ("help", "?", ""):
         await client.chat_postMessage(
@@ -375,6 +392,7 @@ async def handle_team_message(
                 thread_ts=thread_ts,
                 user_message=user_message,
                 bot_user_id=bot_user_id,
+                project=message_project,
             )
             if handled:
                 return
@@ -397,6 +415,7 @@ async def handle_team_message(
                 thread_ts=thread_ts,
                 user_message=user_message,
                 bot_user_id=bot_user_id,
+                project=message_project or routing.project,
             )
             if handled:
                 return

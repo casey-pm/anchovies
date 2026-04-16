@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 STATUS_DIR = config.CONTEXT_BASE / "status"
 
 
-def update_status_file(member: str, summary: str, task: str = "") -> bool:
+def update_status_file(member: str, summary: str, task: str = "", project: str | None = None) -> bool:
     """
     Update a member's status file with completion info.
 
@@ -31,11 +31,23 @@ def update_status_file(member: str, summary: str, task: str = "") -> bool:
         member: Team member name (lowercase)
         summary: Summary of what was accomplished
         task: Original task description
+        project: Optional project slug — writes to project's status dir instead of global
 
     Returns:
         True if status file updated successfully
     """
-    status_file = STATUS_DIR / f"status_{member}.md"
+    # Resolve status directory: project-specific or global
+    status_dir = STATUS_DIR
+    if project:
+        try:
+            from ..project_registry import get_project_registry
+            proj = get_project_registry().get(project)
+            if proj:
+                status_dir = proj.context_base / "status"
+        except Exception:
+            pass  # Fall back to global STATUS_DIR
+
+    status_file = status_dir / f"status_{member}.md"
 
     # Read existing content
     existing = ""

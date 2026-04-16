@@ -33,6 +33,7 @@ class WorkSession:
     thread_ts: Optional[str] = None  # Slack thread for this task
     channel_id: Optional[str] = None  # Slack channel
     files: list[str] = field(default_factory=list)  # Files this session is working on
+    project: Optional[str] = None  # Project slug (None = no project / legacy mode)
 
     @property
     def inactive_minutes(self) -> float:
@@ -68,6 +69,7 @@ class WorkSession:
             status_updated=self.status_updated,
             slack_posted=self.slack_posted,
             close_prompt_shown=self.close_prompt_shown,
+            project=self.project,
         )
 
     @classmethod
@@ -83,6 +85,7 @@ class WorkSession:
             close_prompt_shown=stored.close_prompt_shown,
             thread_ts=stored.thread_ts,
             channel_id=stored.channel_id,
+            project=stored.project,
         )
 
 
@@ -175,6 +178,7 @@ class SessionManager:
         channel_id: str = None,
         working_dir: str = None,
         files: list[str] | None = None,
+        project: str | None = None,
     ) -> bool:
         """
         Start a new work session for a persona.
@@ -187,11 +191,23 @@ class SessionManager:
             channel_id: Slack channel ID
             working_dir: Working directory for the session
             files: List of files this session will work on (used for conflict detection)
+            project: Optional project slug — resolves working_dir from registry if not set
 
         Returns:
             True if session started successfully
         """
         files = files or []
+
+        # Resolve working_dir from project registry if not explicitly set
+        if project and not working_dir:
+            try:
+                from ..project_registry import get_project_registry, ensure_project_dirs
+                proj = get_project_registry().get(project)
+                if proj:
+                    working_dir = str(proj.working_dir)
+                    ensure_project_dirs(proj)  # Lazy-create status/questions/instructions
+            except Exception as e:
+                logger.error(f"Failed to resolve project working dir: {e}")
 
         # Check if session already exists
         if member in self.active_sessions:
@@ -231,6 +247,7 @@ class SessionManager:
             thread_ts=thread_ts,
             channel_id=channel_id,
             files=files,
+            project=project,
         )
         self.active_sessions[member] = session
         self._persist(session, status="active")
@@ -241,6 +258,7 @@ class SessionManager:
                 "task": task_description,
                 "thread_ts": thread_ts,
                 "channel_id": channel_id,
+                "project": project,
                 "files": files,
             },
         )
