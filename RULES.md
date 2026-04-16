@@ -473,7 +473,14 @@ If a persona is unsure whether a command is allowed, they must ask in Slack firs
 
 ---
 
-## 15. Protected Files
+## 15. Project Directory Rule
+
+### 15.1 All Work Within paradise_brain
+All projects and work MUST be within `/home/casey/paradise_brain/`. Personas must NEVER create files, directories, or repositories outside of this path. All registered projects must have their `context_base` and `working_dir` within this directory.
+
+---
+
+## 16. Protected Files
 
 ### 15.1 Off-Limits Files
 Personas must **never** edit, delete, or overwrite these files:
@@ -486,7 +493,7 @@ Personas may read protected files to understand configuration, but must never mo
 
 ---
 
-## 16. Destructive Operation Rules
+## 17. Destructive Operation Rules
 
 ### 16.1 Approval Required
 Before performing **any** of these operations, a persona must post to Slack and **wait** for Casey's explicit approval:
@@ -501,7 +508,7 @@ Post a Slack message describing: what you want to do, why, and what the impact w
 
 ---
 
-## 17. Cost & Resource Rules
+## 18. Cost & Resource Rules
 
 ### 17.1 Daily Budget
 - The daily API cost budget is **$25**.
@@ -525,7 +532,7 @@ Post a Slack message describing: what you want to do, why, and what the impact w
 
 ---
 
-## 18. Cross-Talk Rules
+## 19. Cross-Talk Rules
 
 ### 18.1 Opt-In Only
 Cross-talk is **not automatic**. A persona mentioning another persona's name (e.g., "@sofia") does **not** trigger a response from that persona.
@@ -540,7 +547,7 @@ To explicitly request another persona's input, a persona must use `/summon <name
 
 ---
 
-## 19. Escalation Rules
+## 20. Escalation Rules
 
 ### 19.1 When Stuck
 If a persona is stuck and cannot make progress:
@@ -565,7 +572,7 @@ Casey can issue these commands at any time:
 
 ---
 
-## 20. Review Rules
+## 21. Review Rules
 
 ### 20.1 Kai Auto-Review
 After a code-changing work session completes, **Kai** (The Optimizer) automatically reviews the diff and posts findings to Slack. This does not apply to documentation or analysis tasks.
@@ -578,7 +585,7 @@ Kai's review (or any persona's review) is advisory only. Casey is the final appr
 
 ---
 
-## 21. Monitoring & Status Rules
+## 22. Monitoring & Status Rules
 
 ### 21.1 Status Channel
 System notifications, warnings, and alerts are posted to a dedicated Slack status channel (`SLACK_STATUS_CHANNEL`).
@@ -598,7 +605,7 @@ Available on demand via `@bot daily summary`. Shows: tasks completed, branches r
 
 ---
 
-## 22. Adaptive Learning Rules
+## 23. Adaptive Learning Rules
 
 ### 22.1 Correction Capture
 When Casey corrects a persona's behaviour (using phrases like "no", "don't", "stop", "always", "never", "from now on"), the correction is saved as a persistent rule in `rules/learned_rules.yaml`.
@@ -617,7 +624,7 @@ Learned rules can be reviewed, edited, and removed via CLI: `python -m anchovies
 *Generated from codebase analysis on 2026-04-14.*
 ---
 
-## 23. Multi-Project Rules
+## 24. Multi-Project Rules
 
 ### 23.1 Project Registration
 Projects are registered in `projects.yaml` (hot-reloaded) or via Slack commands (`@bot add project ...`). Each project has a name (slug), display name, context directory, and working directory.
