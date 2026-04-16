@@ -380,6 +380,12 @@ async def handle_team_message(
         )
         return
 
+    # Check for project management commands (before work request detection)
+    project_cmd = parse_project_command(cleaned_message)
+    if project_cmd:
+        await handle_project_command(client, channel_id, thread_ts, project_cmd)
+        return
+
     # Check if this is a work request (file edits, code changes, etc.)
     # Work requests should go through Chat Hub regardless of target persona
     if use_chat_hub and not is_crosstalk:
@@ -449,6 +455,157 @@ async def handle_team_message(
         # Small delay between multiple members
         if len(routing.members) > 1:
             await asyncio.sleep(0.5)
+
+
+def parse_project_command(message: str) -> dict | None:
+    """
+    Detect if a message is a project management command.
+
+    Returns a dict with 'command' and 'args' keys, or None if not a command.
+    """
+    msg = message.strip().lower()
+
+    # "projects" or "list projects"
+    if msg in ("projects", "list projects"):
+        return {"command": "list", "args": ""}
+
+    # "add project <name> --context <path> [--working-dir <path>] [--desc '...']"
+    add_match = re.match(
+        r"add\s+project\s+(\S+)\s+--context\s+(\S+)(.*)",
+        message.strip(),
+        re.IGNORECASE,
+    )
+    if add_match:
+        name = add_match.group(1).lower()
+        context = add_match.group(2)
+        rest = add_match.group(3)
+        working_dir = context  # default
+        description = ""
+        wd_match = re.search(r"--working-dir\s+(\S+)", rest)
+        if wd_match:
+            working_dir = wd_match.group(1)
+        desc_match = re.search(r'--desc\s+"([^"]+)"', rest) or re.search(r"--desc\s+'([^']+)'", rest) or re.search(r"--desc\s+(\S+)", rest)
+        if desc_match:
+            description = desc_match.group(1)
+        return {
+            "command": "add",
+            "args": {"name": name, "context": context, "working_dir": working_dir, "description": description},
+        }
+
+    # "remove project <name>"
+    remove_match = re.match(r"remove\s+project\s+(\S+)", msg)
+    if remove_match:
+        return {"command": "remove", "args": remove_match.group(1)}
+
+    # "set default project <name>"
+    set_match = re.match(r"set\s+default\s+project\s+(\S+)", msg)
+    if set_match:
+        return {"command": "set_default", "args": set_match.group(1)}
+
+    # "clear default project"
+    if msg in ("clear default project", "clear default"):
+        return {"command": "clear_default", "args": ""}
+
+    # "project info <name>"
+    info_match = re.match(r"project\s+info\s+(\S+)", msg)
+    if info_match:
+        return {"command": "info", "args": info_match.group(1)}
+
+    return None
+
+
+async def handle_project_command(
+    client,
+    channel_id: str,
+    thread_ts: str,
+    cmd: dict,
+) -> None:
+    """Execute a project management command and post the result to Slack."""
+    from .project_registry import Project, get_project_registry, ensure_project_dirs
+
+    registry = get_project_registry()
+    registry.reload_if_changed()
+    command = cmd["command"]
+    args = cmd["args"]
+
+    if command == "list":
+        projects = registry.list_projects(active_only=False)
+        if not projects:
+            text = ":file_folder: No projects registered.\nUse `add project <name> --context <path>` to add one."
+        else:
+            lines = [":file_folder: *Registered Projects:*"]
+            default_name = registry.get_default_name()
+            for p in projects:
+                status = ":white_check_mark:" if p.active else ":no_entry_sign:"
+                default_tag = " _(default)_" if p.name == default_name else ""
+                lines.append(
+                    f"  {status} *{p.display_name}* (`{p.name}`){default_tag}"
+                )
+                if p.description:
+                    lines.append(f"      {p.description}")
+                lines.append(f"      Context: `{p.context_base}`")
+                if str(p.working_dir) != str(p.context_base):
+                    lines.append(f"      Working dir: `{p.working_dir}`")
+            text = "\n".join(lines)
+
+    elif command == "add":
+        from pathlib import Path
+        name = args["name"]
+        project = Project(
+            name=name,
+            display_name=name.replace("-", " ").replace("_", " ").title(),
+            context_base=Path(args["context"]).expanduser(),
+            working_dir=Path(args["working_dir"]).expanduser(),
+            description=args.get("description", ""),
+        )
+        registry.register(project)
+        ensure_project_dirs(project)
+        registry.save_to_yaml()
+        text = f":white_check_mark: Project *{project.display_name}* (`{name}`) registered.\nContext: `{project.context_base}`\nWorking dir: `{project.working_dir}`"
+
+    elif command == "remove":
+        name = args
+        if registry.unregister(name):
+            registry.save_to_yaml()
+            text = f":wastebasket: Project `{name}` removed."
+        else:
+            text = f":warning: Project `{name}` not found."
+
+    elif command == "set_default":
+        name = args
+        if registry.get(name):
+            registry.set_default(name)
+            registry.save_to_yaml()
+            proj = registry.get(name)
+            text = f":pushpin: Default project set to *{proj.display_name}* (`{name}`).\nMessages without a `[project]` tag will use this project."
+        else:
+            text = f":warning: Project `{name}` not found. Use `projects` to see available projects."
+
+    elif command == "clear_default":
+        registry.set_default(None)
+        registry.save_to_yaml()
+        text = ":pushpin: Default project cleared. Messages without a `[project]` tag will use the generic team context."
+
+    elif command == "info":
+        name = args
+        proj = registry.get(name)
+        if proj:
+            default_tag = " _(default)_" if registry.get_default_name() == name else ""
+            text = (
+                f":file_folder: *{proj.display_name}* (`{proj.name}`){default_tag}\n"
+                f"Description: {proj.description or '(none)'}\n"
+                f"Context: `{proj.context_base}`\n"
+                f"Working dir: `{proj.working_dir}`\n"
+                f"Default branch: `{proj.default_branch}`\n"
+                f"Active: {'Yes' if proj.active else 'No'}"
+            )
+        else:
+            text = f":warning: Project `{name}` not found."
+
+    else:
+        text = f":warning: Unknown project command: `{command}`"
+
+    await client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=text)
 
 
 def detect_summons_in_response(response: str) -> list[str]:
