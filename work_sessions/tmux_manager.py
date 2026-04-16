@@ -237,7 +237,7 @@ claude && exit 1
         Returns:
             True if Claude is running in the pane, False if timeout or crash
         """
-        SETTLE_SECONDS = 5  # Minimum wait after process detected
+        SETTLE_SECONDS = 15  # Wait for Claude TUI to fully initialize after process starts
 
         start = time.time()
 

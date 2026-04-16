@@ -117,7 +117,7 @@ TIMEOUT=60
 ELAPSED=0
 POLL_INTERVAL=2
 READY=false
-SETTLE=5
+SETTLE=15
 
 while [[ $ELAPSED -lt $TIMEOUT ]]; do
     # Check what process is running in the pane
