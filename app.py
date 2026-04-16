@@ -267,6 +267,22 @@ async def async_main():
     except Exception as e:
         logger.error(f"Session recovery failed (continuing anyway): {e}")
 
+    # Initialize project registry and log registered projects
+    try:
+        from .project_registry import get_project_registry
+        registry = get_project_registry()
+        projects = registry.list_projects()
+        if projects:
+            names = [f"{p.display_name} ({p.name})" for p in projects]
+            logger.info(f"Registered projects: {', '.join(names)}")
+            default = registry.get_default()
+            if default:
+                logger.info(f"Default project: {default.display_name}")
+        else:
+            logger.info("No projects registered (legacy single-project mode)")
+    except Exception as e:
+        logger.error(f"Project registry init failed (continuing anyway): {e}")
+
     # Start async Socket Mode handler
     handler = AsyncSocketModeHandler(app, config.SLACK_APP_TOKEN)
 

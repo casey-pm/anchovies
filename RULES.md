@@ -615,5 +615,39 @@ Learned rules can be reviewed, edited, and removed via CLI: `python -m anchovies
 ---
 
 *Generated from codebase analysis on 2026-04-14.*
-*Updated with Casey's decisions on 2026-04-14.*
+---
+
+## 23. Multi-Project Rules
+
+### 23.1 Project Registration
+Projects are registered in `projects.yaml` (hot-reloaded) or via Slack commands (`@bot add project ...`). Each project has a name (slug), display name, context directory, and working directory.
+
+### 23.2 Project Tagging
+Use square brackets to specify a project in Slack messages: `[calculator] fix the multiply bug`. If no tag is given and a default project is set, the default is used. If no tag and no default, the system uses the generic team context.
+
+### 23.3 Status File Layers
+- **Persona status** (`anchovies/status/status_sofia.md`) — Sofia's general status across all projects
+- **Project status** (`<project_context>/status/status_sofia.md`) — Sofia's status on a specific project
+
+When working on a project, personas update the project's status. Their general persona status stays separate.
+
+### 23.4 Working Directory
+Each project has a `working_dir` (typically the git repo path). When a session is spawned for a project, tmux opens in that directory. Without a project, the default `paradise_brain/` parent directory is used.
+
+### 23.5 Memory Is Project-Independent
+Persona memory files (lessons learned) are NOT project-specific. A lesson learned on one project applies everywhere.
+
+### 23.6 Slack Commands
+| Command | Action |
+|---------|--------|
+| `@bot projects` | List all registered projects |
+| `@bot add project <name> --context <path>` | Register a project |
+| `@bot remove project <name>` | Unregister a project |
+| `@bot set default project <name>` | Set the team default |
+| `@bot clear default project` | Clear the default |
+| `@bot project info <name>` | Show project details |
+
+---
+
+*Updated with Casey's decisions on 2026-04-14. Multi-project support added 2026-04-16.*
 *Source files: app.py, config.py, context.py, router.py, handlers.py, chat_hub/hub.py, chat_hub/prompt_builder.py, chat_hub/skill_mapper.py, work_sessions/tmux_manager.py, work_sessions/session_manager.py, work_sessions/completion.py, cli_runner.py, messages.py, scripts/spawn_persona.sh, profiles/*.yaml, memory/*.md*

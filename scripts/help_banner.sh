@@ -47,6 +47,15 @@ echo -e "  ${YELLOW}./scripts/slack \"message\" --member <name>${NC}          Po
 echo -e "  ${YELLOW}./scripts/slack \"message\" --thread <ts>${NC}            Reply to a Slack thread"
 echo ""
 
+echo -e "${BOLD}${CYAN}PROJECTS${NC}  ${DIM}(manage via Slack or edit projects.yaml)${NC}"
+echo -e "  ${YELLOW}@bot projects${NC}                                      List all registered projects"
+echo -e "  ${YELLOW}@bot add project calc --context ~/calc${NC}             Register a new project"
+echo -e "  ${YELLOW}@bot remove project calc${NC}                           Unregister a project"
+echo -e "  ${YELLOW}@bot set default project calc${NC}                      Set the default project"
+echo -e "  ${YELLOW}@bot project info calc${NC}                             Show project details"
+echo -e "  ${DIM}Use [project] tags in messages: @bot [calc] fix the bug${NC}"
+echo ""
+
 echo -e "${BOLD}${CYAN}MANAGING SESSIONS${NC}"
 echo -e "  ${YELLOW}tmux list-windows${NC}                                  List all active tabs"
 echo -e "  ${YELLOW}tmux kill-window -t anchovies:<name>${NC}               Close a specific persona tab"
