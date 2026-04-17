@@ -55,6 +55,9 @@ THREAD_TTL_SECONDS = 86400  # 24 hours
 chain_depth: dict[str, int] = {}
 MAX_CHAIN_DEPTH = int(os.getenv("MAX_SUMMON_DEPTH", "3"))
 
+# Pause flag — when True, the bot refuses new work requests (chat still works)
+_paused: bool = False
+
 
 def get_conversation_history(thread_ts: str) -> list[dict]:
     """Get conversation history for a thread, updating LRU position."""
@@ -407,6 +410,25 @@ async def handle_team_message(
         )
         return
 
+    # Check for control commands (kill switch, pause, resume, daily summary)
+    control_result = await _handle_control_command(client, channel_id, thread_ts, cleaned_message)
+    if control_result:
+        return
+
+    # If paused, reject work requests but allow chat
+    global _paused
+    if _paused and not is_crosstalk:
+        # Check if this looks like a work request — if so, reject
+        work_info = detect_work_request(cleaned_message)
+        if work_info["is_work_request"]:
+            await client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text=":pause_button: Bot is paused — not accepting new work requests. Use `resume` to re-enable.",
+            )
+            return
+        # Non-work chat still goes through
+
     # Check for project management commands (before work request detection)
     project_cmd = parse_project_command(cleaned_message)
     if project_cmd:
@@ -482,6 +504,143 @@ async def handle_team_message(
         # Small delay between multiple members
         if len(routing.members) > 1:
             await asyncio.sleep(0.5)
+
+
+async def _handle_control_command(client, channel_id: str, thread_ts: str, message: str) -> bool:
+    """
+    Handle bot control commands: stop all, stop <name>, pause, resume, daily summary.
+    Returns True if the message was a control command (handled), False otherwise.
+    """
+    global _paused
+    msg = message.strip().lower()
+
+    # --- stop all ---
+    if msg in ("stop all", "stop everything", "kill all"):
+        session_mgr = get_session_manager()
+        tmux = get_tmux_manager()
+        closed = []
+        for member in list(session_mgr.active_sessions.keys()):
+            tmux.close_persona_tab(member)
+            session_mgr.storage.mark_session_status(member, "killed")
+            session_mgr.storage.log_event("session_killed", member=member, details={"reason": "stop all"})
+            del session_mgr.active_sessions[member]
+            closed.append(member)
+
+        # Clear the queue too
+        from .task_queue import get_task_queue
+        queue = get_task_queue()
+        queued_count = queue.clear()
+
+        text = f":octagonal_sign: All sessions stopped."
+        if closed:
+            text += f"\nKilled: {', '.join(m.title() for m in closed)}"
+        if queued_count:
+            text += f"\nCleared {queued_count} queued task(s)."
+        await client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=text)
+        return True
+
+    # --- stop <name> ---
+    stop_match = re.match(r"stop\s+(\w+)", msg)
+    if stop_match:
+        name = stop_match.group(1).lower()
+        if name in ("all", "everything"):
+            return False  # handled above
+        member = config.get_member_name(name)
+        if not member:
+            return False  # not a member name, fall through to normal routing
+
+        session_mgr = get_session_manager()
+        if member in session_mgr.active_sessions:
+            tmux = get_tmux_manager()
+            tmux.close_persona_tab(member)
+            session_mgr.storage.mark_session_status(member, "killed")
+            session_mgr.storage.log_event("session_killed", member=member, details={"reason": "stop command"})
+            del session_mgr.active_sessions[member]
+            await client.chat_postMessage(
+                channel=channel_id, thread_ts=thread_ts,
+                text=f":octagonal_sign: {member.title()}'s session stopped.",
+            )
+        else:
+            # Also remove from queue if queued
+            from .task_queue import get_task_queue
+            removed = get_task_queue().remove_member(member)
+            if removed:
+                await client.chat_postMessage(
+                    channel=channel_id, thread_ts=thread_ts,
+                    text=f":octagonal_sign: Removed {member.title()} from the queue.",
+                )
+            else:
+                await client.chat_postMessage(
+                    channel=channel_id, thread_ts=thread_ts,
+                    text=f":shrug: {member.title()} has no active session or queued task.",
+                )
+        return True
+
+    # --- pause ---
+    if msg == "pause":
+        _paused = True
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text=":pause_button: Bot paused — no new work sessions will be accepted. Active sessions continue. Use `resume` to re-enable.",
+        )
+        return True
+
+    # --- resume ---
+    if msg == "resume":
+        _paused = False
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text=":arrow_forward: Bot resumed — accepting work requests again.",
+        )
+        return True
+
+    # --- daily summary ---
+    if msg in ("daily summary", "summary", "status summary"):
+        from .cost_tracking import get_today_spend, DAILY_BUDGET_USD
+        from .task_queue import get_task_queue
+
+        session_mgr = get_session_manager()
+        storage = session_mgr.storage
+        spend, calls = get_today_spend()
+        queue = get_task_queue()
+
+        # Count today's completed sessions from audit
+        today_start = time.time() - (time.time() % 86400)  # midnight UTC approx
+        completed = storage.query_audit(since=today_start, event_type="session_completed")
+        started = storage.query_audit(since=today_start, event_type="session_started")
+
+        active = session_mgr.list_sessions()
+        active_lines = []
+        for s in active:
+            project_tag = f" [{s.project}]" if s.project else ""
+            active_lines.append(f"  - {s.member.title()}{project_tag}: {s.task_description[:40]}... ({s.total_minutes:.0f}m)")
+
+        lines = [
+            f":bar_chart: *Daily Summary*",
+            f"",
+            f"*Sessions:* {len(started)} started, {len(completed)} completed, {len(active)} active",
+        ]
+        if active_lines:
+            lines.append("*Active now:*")
+            lines.extend(active_lines)
+
+        queue_size = queue.size
+        if queue_size:
+            lines.append(f"*Queued:* {queue_size} task(s) waiting")
+
+        lines.append(f"")
+        lines.append(f"*Cost:* ${spend:.2f} / ${DAILY_BUDGET_USD:.2f} ({calls} API calls)")
+
+        paused_tag = " :pause_button: *PAUSED*" if _paused else ""
+        lines.append(f"*Status:* {'Paused' if _paused else 'Running'}{paused_tag}")
+
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text="\n".join(lines),
+        )
+        return True
+
+    return False
 
 
 def parse_project_command(message: str) -> dict | None:
