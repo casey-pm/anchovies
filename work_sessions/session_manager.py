@@ -301,25 +301,55 @@ class SessionManager:
 
         logger.info(f"Ended work session for {member}")
 
-        # Drain queue: if there's a queued task, start it now that a slot is free
-        try:
-            from ..task_queue import get_task_queue
-            queue = get_task_queue()
-            if not queue.is_empty:
-                next_task = queue.peek()
-                if next_task:
-                    logger.info(
-                        f"Session slot freed — next queued task: "
-                        f"{next_task.member} ({next_task.task_description[:40]})"
-                    )
-                    # Note: actual spawning of queued tasks is handled by the
-                    # handler layer (which has access to the Slack client for
-                    # notifications). We just log here. The handler's periodic
-                    # check or next message will trigger the drain.
-        except Exception:
-            pass
-
         return True
+
+    async def drain_queue(self) -> list[str]:
+        """
+        Drain the task queue: spawn queued tasks to fill available slots.
+
+        Called after sessions end or during watchdog sweeps. Spawns up to
+        (MAX_CONCURRENT - active) tasks from the queue concurrently.
+
+        Returns list of member names that were spawned from the queue.
+        """
+        try:
+            from ..task_queue import get_task_queue, MAX_CONCURRENT_SESSIONS
+            queue = get_task_queue()
+
+            if queue.is_empty:
+                return []
+
+            available_slots = MAX_CONCURRENT_SESSIONS - len(self.active_sessions)
+            if available_slots <= 0:
+                return []
+
+            spawned = []
+            # Spawn up to available_slots tasks
+            for _ in range(available_slots):
+                task = queue.dequeue()
+                if task is None:
+                    break
+
+                logger.info(f"Draining queue: spawning {task.member} ({task.task_description[:40]})")
+                success = await self.start_session(
+                    member=task.member,
+                    task_description=task.task_description,
+                    task_prompt=task.task_prompt,
+                    thread_ts=task.thread_ts,
+                    channel_id=task.channel_id,
+                    files=task.files,
+                    project=task.project,
+                )
+                if success:
+                    spawned.append(task.member)
+                else:
+                    logger.warning(f"Failed to spawn queued task for {task.member}")
+
+            return spawned
+
+        except Exception as e:
+            logger.error(f"Queue drain failed: {e}")
+            return []
 
     def get_session(self, member: str) -> Optional[WorkSession]:
         """Get a session by member name."""

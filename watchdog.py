@@ -130,6 +130,19 @@ async def _run_checks() -> list[str]:
     except Exception as e:
         logger.error(f"Watchdog queue check error: {e}")
 
+    # Drain queue if slots are available
+    try:
+        from .work_sessions import get_session_manager
+        session_mgr = get_session_manager()
+        spawned = await session_mgr.drain_queue()
+        for member in spawned:
+            alerts.append(
+                f":arrow_forward: Queued task started for *{member.title()}* "
+                f"(slot freed by session closure)"
+            )
+    except Exception as e:
+        logger.error(f"Watchdog queue drain error: {e}")
+
     if alerts:
         logger.info(f"Watchdog generated {len(alerts)} alert(s)")
 
