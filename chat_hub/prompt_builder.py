@@ -33,6 +33,15 @@ WORK_PATTERNS = [
     r"\bwrite\s+.{0,15}\b(to|in|into)\b",  # "write to file", "write in a file"
     r"\bsave\s+.{0,10}\b(to|as|in)\b",  # "save to file", "save as"
     r"\bgenerate\s+.{0,10}\b(file|report|summary)",  # "generate a file"
+    # Project-level work requests
+    r"\b(build|develop|construct)\s+.{0,20}\b(app|application|project|system|module|tool|service|api)",
+    r"\b(start|begin|kick off)\s+(working on|building|developing|the project|the work)",
+    r"\bwork\s+on\s+.{0,20}\b(project|app|feature|module|task)",
+    r"\b(set up|setup|initialize|init)\s+.{0,20}\b(project|repo|app|environment)",
+    r"\b(build|create|make|develop)\s+(a|an|the)\s+\w+",  # "build a calculator", "create an API"
+    r"\bimplement\b",
+    r"\blet.?s\s+(start|build|create|work|begin|get started)",  # "let's start", "let's build"
+    r"\bget\s+started\b",
     # File extensions
     r"\.py\b",
     r"\.js\b",

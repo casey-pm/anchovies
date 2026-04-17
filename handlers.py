@@ -321,6 +321,10 @@ async def handle_chat_hub_message(
         add_to_conversation(thread_ts, "user", cleaned_message)
         add_to_conversation(thread_ts, "assistant", response, config.CHAT_HUB_PERSONA)
 
+        # Check if Marcus's response suggests assigning a persona.
+        # If so, create a pending suggestion so Casey can just reply "yes".
+        _detect_assignment_in_response(response, thread_ts, cleaned_message, project)
+
         return True
 
     except Exception as e:
@@ -334,6 +338,51 @@ async def handle_chat_hub_message(
             text=f"Error from {profile.name}",
         )
         return True
+
+
+def _detect_assignment_in_response(
+    response: str, thread_ts: str, original_message: str, project: str | None,
+) -> None:
+    """
+    Scan Marcus's chat response for persona assignment language.
+
+    If Marcus says something like "I'll have Sofia start" or "Let's assign Elena",
+    create a pending suggestion so Casey can confirm with "yes".
+
+    This bridges the gap between Marcus's Director role (proposing assignments
+    in natural language) and the system's spawn mechanism (which needs explicit
+    confirmation).
+    """
+    # Look for assignment patterns mentioning a team member
+    assignment_patterns = [
+        r"(?:I'll have|Let's have|I'll assign|Let's assign|start with|I recommend)\s+(\w+)",
+        r"(\w+)\s+(?:should start|can start|will start|can handle|should handle|can take|should take)",
+        r"(?:assign|send|give)\s+(?:this|it|the task)\s+to\s+(\w+)",
+    ]
+
+    for pattern in assignment_patterns:
+        match = re.search(pattern, response, re.IGNORECASE)
+        if match:
+            name = match.group(1).lower()
+            member = config.get_member_name(name)
+            if member and member != "marcus":  # Don't suggest Marcus assigning to himself
+                # Create a pending suggestion
+                _pending_suggestions[thread_ts] = {
+                    "suggested_member": member,
+                    "track": "",
+                    "reason": "recommended by Marcus",
+                    "task_description": original_message,
+                    "task_prompt": "",  # Will be built at spawn time
+                    "files": [],
+                    "project": project,
+                    "created_at": _time.time(),
+                    "needs_prompt_build": True,  # Flag to build prompt at confirmation
+                }
+                logger.info(
+                    f"[ChatHub] Marcus recommended {member} in response — "
+                    f"created pending suggestion (Casey can reply 'yes')"
+                )
+                return  # Only create one suggestion
 
 
 def add_to_conversation(thread_ts: str, role: str, content: str, member: str = ""):
@@ -775,6 +824,44 @@ async def _handle_control_command(client, channel_id: str, thread_ts: str, messa
             text=":arrow_forward: Bot resumed — accepting work requests again.",
         )
         return True
+
+    # --- assign <persona> <task> ---
+    assign_match = re.match(r"assign\s+(\w+)\s+(.+)", message.strip(), re.IGNORECASE)
+    if assign_match:
+        name = assign_match.group(1).lower()
+        task_desc = assign_match.group(2).strip()
+        member = config.get_member_name(name)
+        if member:
+            logger.info(f"[Control] Assign command: {member} -> '{task_desc[:50]}'")
+            # Build the suggestion and auto-confirm it
+            _pending_suggestions[thread_ts] = {
+                "suggested_member": member,
+                "track": "",
+                "reason": "direct assignment",
+                "task_description": task_desc,
+                "task_prompt": "",
+                "files": [],
+                "project": None,  # Will use message_project from the calling context
+                "created_at": _time.time(),
+                "needs_prompt_build": True,
+            }
+            # Extract project from the task description
+            from .router import extract_project_tag
+            assign_project, assign_task = extract_project_tag(task_desc)
+            if assign_project:
+                _pending_suggestions[thread_ts]["project"] = assign_project
+                _pending_suggestions[thread_ts]["task_description"] = assign_task
+
+            # Auto-spawn (no need for confirmation — assign is explicit)
+            suggestion = _pending_suggestions.pop(thread_ts)
+            await _spawn_from_suggestion(client, channel_id, thread_ts, suggestion, member)
+            return True
+        else:
+            await client.chat_postMessage(
+                channel=channel_id, thread_ts=thread_ts,
+                text=f":warning: Unknown team member: `{name}`. Use `@bot projects` to see available personas.",
+            )
+            return True
 
     # --- brief ---
     if msg.startswith("brief ") or msg == "brief":
