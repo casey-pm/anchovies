@@ -1,263 +1,235 @@
-# Anchovies 🐟
+# Anchovies
 
-A hybrid Slack-integrated chat system for AI team collaboration.
+A Slack-integrated AI team system with 16 personas, multi-project support, and production-grade safety features.
 
-Anchovies combines a persistent Chat Hub (Marcus as coordinator) with on-demand work sessions for file editing tasks. Messages flow through Slack, get routed by the Chat Hub, and when work is needed, dedicated persona tabs spawn in tmux with full Claude CLI capabilities.
+Anchovies combines a persistent Chat Hub (Marcus as coordinator) with on-demand Claude CLI work sessions in tmux. Messages flow through Slack, get routed by the Chat Hub, and when work is needed, dedicated persona tabs spawn with full file editing capabilities.
+
+## Quick Start
+
+```bash
+# 1. Install dependencies
+cd ~/paradise_brain/anchovies
+pip install -r requirements.txt
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your Slack credentials
+
+# 3. Run health check
+cd ~/paradise_brain && python -m anchovies.health
+
+# 4. Start tmux session
+cd ~/paradise_brain/anchovies && ./scripts/start_anchovies.sh
+
+# 5. Start the Slack bot (separate terminal)
+cd ~/paradise_brain && python -m anchovies.app
+```
 
 ## Architecture
 
 ```
                               SLACK
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         SLACK BOT                                │
-│  • Monitors @mentions and DMs                                    │
-│  • Detects: quick chat vs work request                          │
-│  • Routes to Chat Hub or spawns work sessions                   │
-└────────────┬─────────────────────────────┬──────────────────────┘
-             │                             │
-        [quick chat]                  [work request]
-             │                             │
-             ▼                             ▼
-┌─────────────────────────┐    ┌──────────────────────────────────┐
-│  CHAT HUB (Marcus)      │    │  WORK SESSION                    │
-│                         │    │  (tmux tab per persona)          │
-│  • Quick responses      │    │                                  │
-│  • Task coordination    │    │  • Claude CLI with task prompt   │
-│  • Route decisions      │    │  • File editing capabilities     │
-└─────────────────────────┘    │  • Completion flow to Slack      │
-                               └──────────────────────────────────┘
+                                |
+                                v
++---------------------------------------------------------------+
+|                         ASYNC SLACK BOT                        |
+|  * Rate limiting (10/min/user, 30/min global)                 |
+|  * Channel allowlist                                          |
+|  * Input sanitisation (prompt injection detection)            |
+|  * [project] tag extraction                                   |
+|  * Control commands (stop/pause/resume/summary)               |
++----------+----------------------------+-----------------------+
+           |                            |
+      [quick chat]                [work request]
+           |                            |
+           v                            v
++---------------------+    +-----------------------------------+
+|  CHAT HUB (Marcus)  |    |  WORK SESSION                     |
+|                     |    |  (tmux tab per persona)            |
+|  * Project-aware    |    |                                    |
+|  * Haiku model      |    |  * Claude CLI with task prompt     |
+|  * Budget tracking  |    |  * Sonnet model                   |
+|  * Audit logging    |    |  * Feature branch per session     |
++---------------------+    |  * Auto-PR on completion          |
+                           |  * Safety rules injected          |
+                           +-----------------------------------+
 ```
 
 ## Features
 
-### Chat Hub
-- **Marcus as Coordinator**: All messages route through Marcus first
-- **Smart Routing**: Detects work requests vs quick chat automatically
-- **Team of 16**: Each persona has unique profile, skills, and communication style
+### Team of 16 Personas
+| Name | Nickname | Role | Pillar |
+|------|----------|------|--------|
+| Marcus | Boss | BI Manager | Leadership |
+| Kai | The Optimizer | Code Quality Engineer | Leadership |
+| Olivia | Scribe | Documentation Manager | Leadership |
+| Elena | Pipes | Senior Data Engineer | Data Engineering |
+| James | JO | Data Engineer | Data Engineering |
+| Victor | Blueprint | Data Architect | Data Engineering |
+| Anna | The Auditor | Data Quality Analyst | Data Engineering |
+| Sofia | dbt Queen | Analytics Engineer | Analytics/Science |
+| Julia | Glue | Analytics Engineer (Integration) | Analytics/Science |
+| Raj | The Prophet | Data Scientist | Analytics/Science |
+| Leo | Padawan | Junior Data Scientist | Analytics/Science |
+| Natalie | Nat | Senior BI Analyst | Business Intelligence |
+| Tom | Numbers | Data Analyst | Business Intelligence |
+| Priya | P | Junior BI Analyst | Business Intelligence |
+| Mike | Dashboard Mike | Reporting Analyst | Business Intelligence |
+| Nina | Pixel | BI Report Designer | Business Intelligence |
 
-### Work Sessions
-- **On-demand tmux tabs**: Spawn when file editing is needed
-- **Task-specific prompts**: Include identity, task, files, skills, completion instructions
-- **Session tracking**: Monitor active sessions, timeouts, completion status
+### Multi-Project Support
+Register projects dynamically without restarting:
 
-### Slack Integration
-- **Bi-directional**: Receive messages, post responses and completions
-- **Thread-aware**: Work session completions reply to the original thread
-- **Member identity**: Posts include persona name formatting
-
-## Quick Start
-
-### Prerequisites
-- Python 3.10+
-- [Claude CLI](https://github.com/anthropics/claude-cli) installed and authenticated
-- Slack App with Socket Mode enabled
-- tmux
-
-### Installation
-
-```bash
-# Clone the repo
-git clone https://github.com/yourusername/anchovies.git
-cd anchovies
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your Slack credentials
+```
+@bot add project calculator --context ~/paradise_brain/test_calculator --desc "Test app"
+@bot projects                        # List all projects
+@bot set default project calculator   # Set team default
+@bot [calculator] @sofia fix the multiply bug   # Project-scoped work
+@bot [calculator] what's the status?            # Project-aware chat
 ```
 
-### Slack App Setup
-
-1. Create a new app at [api.slack.com/apps](https://api.slack.com/apps)
-2. Enable **Socket Mode** (Settings → Socket Mode)
-3. Add **Bot Token Scopes** (OAuth & Permissions):
-   - `app_mentions:read`
-   - `channels:history`
-   - `channels:read`
-   - `chat:write`
-   - `im:history`
-   - `im:read`
-   - `im:write`
-   - `users:read`
-4. **Event Subscriptions** → Subscribe to:
-   - `app_mention`
-   - `message.im`
-   - `message.groups`
-5. Install to workspace and copy tokens to `.env`
-
-### Running
-
-```bash
-# Terminal 1: Start tmux session
-./scripts/start_anchovies.sh
-
-# Terminal 2 (or in tmux chat pane): Start Slack bot
-python -m anchovies.app
+Or edit `projects.yaml` directly (hot-reloaded):
+```yaml
+projects:
+  calculator:
+    display_name: "Calculator App"
+    context_base: "/home/casey/paradise_brain/test_calculator"
+    working_dir: "/home/casey/paradise_brain/test_calculator"
+    description: "Test calculator"
+default_project: calculator
 ```
 
-### Testing
+### Safety & Git Workflow
+- **Feature branches**: Each session works on `<persona>/<task-slug>`, never touches main
+- **Auto-PR**: On completion, a GitHub PR is created for review (never auto-merged)
+- **Protected files**: `.env`, credentials, secrets are off-limits
+- **Destructive ops**: Delete/drop/migrate require Slack approval first
+- **Shell allowlist**: Only approved commands (git, pytest, python, etc.)
+- **Input sanitisation**: Prompt injection attempts detected and logged
+- **File conflict detection**: Warns when two personas target the same file
 
-In Slack:
+### Cost & Resource Management
+- **Model selection**: Haiku for chat (cheap), Sonnet for work (capable), per-persona overrides
+- **Daily budget cap**: $25/day default, rejects new sessions when exceeded
+- **Rate limiting**: 10 msgs/min per user, 30/min global
+- **Max concurrent sessions**: 4 (configurable), excess requests queued
+- **Session timeouts**: Soft (10 min idle) + hard (30 min total) + crash detection
+
+### Observability
+- **Structured logging**: JSON to `logs/anchovies.log` with rotation
+- **Audit trail**: `python -m anchovies.audit --last 24h --member sofia`
+- **Health check**: `python -m anchovies.health`
+- **Watchdog**: Background task every 2 min — auto-closes dead sessions, budget warnings
+- **Daily summary**: `@bot daily summary` — tasks, cost, queue status
+
+### Bot Control
 ```
-@bot what's the project status?          → Marcus responds (quick chat)
-@bot sofia fix the bug in processor.py   → Sofia's work tab spawns in tmux
-@bot @julia update your status file      → Julia's work tab spawns
+@bot stop all         # Kill all sessions + clear queue
+@bot stop sofia       # Kill specific session
+@bot pause            # Stop accepting work (chat still works)
+@bot resume           # Re-enable work requests
+@bot daily summary    # Today's stats
+@bot projects         # List registered projects
+@bot help             # Show team roster
 ```
+
+### Cross-Talk (Opt-In)
+Personas use `/summon <name>` to explicitly request another persona's input. Plain @mentions don't trigger — this prevents runaway chains and cost explosions. Max depth: 3.
 
 ## Project Structure
 
 ```
 anchovies/
-├── app.py                    # Slack Bolt application
-├── config.py                 # Configuration and environment
-├── handlers.py               # Slack event handlers + Chat Hub routing
-├── router.py                 # Message routing logic
-├── context.py                # Persona context loader
-├── cli_runner.py             # Claude CLI subprocess runner
-├── messages.py               # Slack Block Kit message builders
-│
-├── chat_hub/                 # Chat Hub module
-│   ├── hub.py                # ChatHub class (Marcus coordinator)
-│   ├── prompt_builder.py     # Task prompt construction
-│   └── skill_mapper.py       # Task type → skills mapping
-│
-├── work_sessions/            # Work session management
-│   ├── tmux_manager.py       # tmux operations (spawn, close tabs)
-│   ├── session_manager.py    # Session lifecycle tracking
-│   └── completion.py         # Task completion flow
-│
-├── slack_integration/        # Slack posting tools
-│   └── poster.py             # CLI and API for posting to Slack
-│
-├── scripts/                  # Shell scripts
-│   ├── start_anchovies.sh    # Start tmux session
-│   ├── spawn_persona.sh      # Manually spawn persona tab
-│   ├── slack                 # Quick slack posting command
-│   └── post_to_slack.sh      # Full slack posting script
-│
-├── profiles/                 # Persona YAML profiles
-│   ├── profile_marcus.yaml
-│   ├── profile_sofia.yaml
-│   └── ...
-│
-├── memory/                   # Persona memory files
-├── status/                   # Persona status files
-└── tmp/                      # Temporary prompt files
+|-- app.py                      # Async Slack Bolt application
+|-- config.py                   # Configuration + validation
+|-- context.py                  # Persona context loader
+|-- handlers.py                 # Slack event handlers + routing
+|-- router.py                   # Message routing + [project] extraction
+|-- cli_runner.py               # Claude CLI async subprocess runner
+|-- storage.py                  # SQLite persistence (sessions, audit, budget)
+|-- sanitiser.py                # Prompt injection detection
+|-- git_safety.py               # Branch isolation + PR creation
+|-- cost_tracking.py            # Per-call cost estimation + budget
+|-- rate_limit.py               # Token-bucket rate limiter
+|-- task_queue.py               # FIFO queue for excess work requests
+|-- project_registry.py         # Multi-project registry + YAML I/O
+|-- watchdog.py                 # Background monitoring task
+|-- logging_config.py           # Structured JSON logging setup
+|-- audit.py                    # Audit trail CLI
+|-- health.py                   # Health check CLI
+|
+|-- chat_hub/
+|   |-- hub.py                  # ChatHub class (Marcus coordinator)
+|   |-- prompt_builder.py       # Task prompt construction + safety rules
+|   +-- skill_mapper.py         # Task type -> skills mapping
+|
+|-- work_sessions/
+|   |-- tmux_manager.py         # tmux operations (spawn, close, ready-detect)
+|   |-- session_manager.py      # Session lifecycle + crash recovery
+|   +-- completion.py           # Task completion flow
+|
+|-- slack_integration/
+|   +-- poster.py               # CLI for posting to Slack
+|
+|-- scripts/
+|   |-- start_anchovies.sh      # Start tmux session with help banner
+|   |-- spawn_persona.sh        # Spawn persona tab manually
+|   |-- post_to_slack.sh        # Post to Slack from shell
+|   |-- slack                   # Quick slack posting alias
+|   +-- help_banner.sh          # Display help in tmux
+|
+|-- profiles/                   # Persona YAML profiles (16)
+|-- memory/                     # Persona memory files (lessons learned)
+|-- status/                     # Persona general status files
+|-- data/                       # SQLite database (gitignored)
+|-- logs/                       # JSON log files (gitignored)
+|-- rules/                      # Learned rules (future)
+|-- tests/                      # 528 tests
+|-- projects.yaml               # Multi-project registry
+|-- RULES.md                    # 24 operational rule sections
+|-- MAKEOVER.md                 # Production readiness analysis
+|-- TESTING_GUIDE.md            # Manual testing procedures
++-- .env                        # Slack credentials (gitignored)
 ```
 
 ## Configuration
 
 ### Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SLACK_BOT_TOKEN` | Yes | Bot token (xoxb-...) |
-| `SLACK_APP_TOKEN` | Yes | App token for Socket Mode (xapp-...) |
-| `SLACK_SIGNING_SECRET` | Yes | Signing secret |
-| `SLACK_CHANNEL_ID` | No | Default channel for posting |
-| `CONTEXT_BASE` | No | Path to context files |
-| `PROFILES_DIR` | No | Path to persona profiles |
-| `CLAUDE_CLI_PATH` | No | Claude CLI executable (default: `claude`) |
-| `DEFAULT_MEMBER` | No | Default persona (default: `marcus`) |
-| `TMUX_SESSION_NAME` | No | tmux session name (default: `anchovies`) |
-| `SESSION_TIMEOUT_MINUTES` | No | Auto-close timeout (default: `10`) |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SLACK_BOT_TOKEN` | Yes | — | Bot token (`xoxb-...`) |
+| `SLACK_APP_TOKEN` | Yes | — | Socket Mode token (`xapp-...`) |
+| `SLACK_SIGNING_SECRET` | Yes | — | Signing secret |
+| `SLACK_CHANNEL_ID` | No | — | Default channel for posting |
+| `SLACK_STATUS_CHANNEL` | No | — | Channel for watchdog alerts |
+| `ALLOWED_CHANNELS` | No | (all) | Comma-separated channel IDs |
+| `PROJECT_NAME` | No | "the current project" | Team/project name in prompts |
+| `CHAT_MODEL` | No | haiku | Model for chat responses |
+| `WORK_MODEL` | No | sonnet | Model for work sessions |
+| `MAX_CONCURRENT_SESSIONS` | No | 4 | Max parallel work sessions |
+| `DAILY_BUDGET` | No | 25.0 | Daily API cost cap (USD) |
+| `SESSION_TIMEOUT_MINUTES` | No | 10 | Soft timeout (idle) |
+| `HARD_TIMEOUT_MINUTES` | No | 30 | Hard timeout (total) |
+| `MAX_SUMMON_DEPTH` | No | 3 | Cross-talk chain limit |
+| `LOG_LEVEL` | No | INFO | Logging level |
+| `WATCHDOG_INTERVAL_SECONDS` | No | 120 | Watchdog check interval |
 
-## Usage
+## Testing
 
-### tmux Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+b 0` | Switch to chat tab |
-| `Ctrl+b n` | Next tab |
-| `Ctrl+b p` | Previous tab |
-| `Ctrl+b &` | Kill current tab |
-| `Ctrl+b d` | Detach session |
-
-### Work Session Completion
-
-When a persona finishes their task:
-
-1. **Update status file**:
-   ```bash
-   # Edit the status file with summary
-   vim ~/path/to/status/status_<persona>.md
-   ```
-
-2. **Post to Slack**:
-   ```bash
-   ~/anchovies/scripts/slack "Summary of work done" --member <persona> --thread <thread_ts>
-   ```
-
-3. **Close session**: Tell the user you're done, they close with `Ctrl+b &`
-
-### Python API
-
-```python
-# Post to Slack programmatically
-from anchovies.slack_integration import post_to_slack, post_completion_message
-
-post_to_slack("Hello world", member="sofia")
-post_completion_message("sofia", "Fixed the data processor bug")
-
-# Check active sessions
-from anchovies.work_sessions import get_session_manager
-
-mgr = get_session_manager()
-print(mgr.get_status_summary())
+```bash
+cd ~/paradise_brain/anchovies
+python -m pytest tests/ -v          # Run all 528 tests
+python -m pytest tests/ -x          # Stop on first failure
+python -m pytest tests/test_hub.py  # Run specific test file
 ```
 
-## Team Members
+## Key Documents
 
-| Name | Nickname | Role |
-|------|----------|------|
-| Marcus | Boss | BI Manager (Coordinator) |
-| Sofia | dbt Queen | Analytics Engineer |
-| Raj | The Prophet | Data Scientist |
-| Leo | Padawan | Junior Data Scientist |
-| Elena | Pipes | Senior Data Engineer |
-| James | Jo | Data Engineer |
-| Victor | Blueprint | Data Architect |
-| Anna | The Auditor | Data Quality Analyst |
-| Natalie | Nat | Senior BI Developer |
-| Tom | Numbers | BI Analyst |
-| Priya | P | Junior BI Developer |
-| Mike | Dashboard Mike | Reporting Specialist |
-| Nina | Pixel | Data Visualization |
-| Julia | Glue | Integration Specialist |
-| Olivia | Scribe | Documentation Lead |
-| Kai | The Optimizer | Code Quality Lead |
-
-## Work Request Detection
-
-The following patterns trigger work sessions (vs quick chat):
-
-- **Fix/Debug**: `fix bug`, `debug error`, `resolve issue`
-- **Edit/Update**: `edit file`, `update status`, `modify code`
-- **Create/Add**: `create function`, `add feature`, `write test`
-- **Refactor**: `refactor`, `restructure`, `reorganize`
-- **Git**: `commit`, `review PR`
-- **File extensions**: `.py`, `.js`, `.ts`, `.css`, `.md`, `.yaml`, `.json`
+- **[RULES.md](RULES.md)** — 24 operational rule sections governing all bot behaviour
+- **[MAKEOVER.md](MAKEOVER.md)** — Production readiness analysis and decision record
+- **[TESTING_GUIDE.md](TESTING_GUIDE.md)** — Manual testing procedures
 
 ## License
 
 MIT
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
----
-
-Built with Claude CLI and Slack Bolt.
