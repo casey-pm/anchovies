@@ -55,3 +55,6 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# Cloned external repos for analysis
+external_repos/
