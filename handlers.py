@@ -107,12 +107,27 @@ async def handle_chat_hub_message(
     # Scan for prompt injection attempts (logs to audit, does NOT block)
     log_if_suspicious(cleaned_message, source=f"slack:{channel_id}:{thread_ts}")
 
+    # Post "Marcus is thinking..." immediately so the user knows the bot is working.
+    # This stays visible while Claude CLI processes the request (can take 10-30s).
+    thinking_response = await client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text=":hourglass: *Marcus* is thinking...",
+    )
+    thinking_ts = thinking_response["ts"]
+
     # Check if this is a work request
     hub = get_chat_hub()
     history = get_conversation_history(thread_ts)
     result = await hub.process_message(cleaned_message, thread_ts=thread_ts, conversation_history=history, project=project)
 
     if result["type"] == "work_request":
+        # Delete the thinking message — work request flow posts its own messages
+        try:
+            await client.chat_delete(channel=channel_id, ts=thinking_ts)
+        except Exception:
+            pass
+
         # Work request detected - spawn persona tab
         member = result["target_persona"]
         task_prompt = result["task_prompt"]
@@ -255,21 +270,9 @@ async def handle_chat_hub_message(
         return True
 
     # Quick chat - respond as Marcus directly
-    # Load Marcus's context for the response
+    # The early "thinking..." message (thinking_ts) is already visible.
     context = load_member_context(config.CHAT_HUB_PERSONA)
     profile = context.profile
-
-    # Post "thinking" message
-    thinking_response = await client.chat_postMessage(
-        channel=channel_id,
-        thread_ts=thread_ts,
-        blocks=messages.build_thinking_message(
-            profile.name,
-            profile.avatar_emoji
-        ),
-        text=f"{profile.name} is thinking...",
-    )
-    thinking_ts = thinking_response["ts"]
 
     try:
         # Generate response using Claude CLI (through Chat Hub)
