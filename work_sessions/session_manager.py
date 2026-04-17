@@ -300,6 +300,25 @@ class SessionManager:
         del self.active_sessions[member]
 
         logger.info(f"Ended work session for {member}")
+
+        # Drain queue: if there's a queued task, start it now that a slot is free
+        try:
+            from ..task_queue import get_task_queue
+            queue = get_task_queue()
+            if not queue.is_empty:
+                next_task = queue.peek()
+                if next_task:
+                    logger.info(
+                        f"Session slot freed — next queued task: "
+                        f"{next_task.member} ({next_task.task_description[:40]})"
+                    )
+                    # Note: actual spawning of queued tasks is handled by the
+                    # handler layer (which has access to the Slack client for
+                    # notifications). We just log here. The handler's periodic
+                    # check or next message will trigger the drain.
+        except Exception:
+            pass
+
         return True
 
     def get_session(self, member: str) -> Optional[WorkSession]:

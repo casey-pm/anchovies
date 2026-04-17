@@ -154,37 +154,64 @@ async def handle_chat_hub_message(
             tmux.send_to_work_pane(member, f"# New task from Slack:\n{cleaned_message}")
             session_mgr.touch_session(member)
         else:
-            # Detect file conflicts and warn in Slack BEFORE starting
             files_for_task = result.get("files") if isinstance(result, dict) else []
-            if files_for_task:
-                conflicts = session_mgr.detect_file_conflicts(member, files_for_task)
-                for other_member, overlap in conflicts:
-                    await client.chat_postMessage(
-                        channel=channel_id,
-                        thread_ts=thread_ts,
-                        text=(
-                            f":warning: *File conflict warning*: {member.title()} and "
-                            f"{other_member.title()} both targeting `{', '.join(overlap)}`. "
-                            f"Coordinate to avoid clobbering each other's changes."
-                        ),
-                    )
 
-            # Start new session
-            success = await session_mgr.start_session(
-                member=member,
-                task_description=cleaned_message[:100],
-                task_prompt=task_prompt,
-                thread_ts=thread_ts,
-                channel_id=channel_id,
-                files=files_for_task or [],
-                project=result.get("project"),
-            )
-            if not success:
+            # Check concurrent session limit — queue if at capacity
+            from .task_queue import get_task_queue, QueuedTask, MAX_CONCURRENT_SESSIONS
+            queue = get_task_queue()
+            active_count = len(session_mgr.active_sessions)
+
+            if active_count >= MAX_CONCURRENT_SESSIONS:
+                # Queue the task instead of spawning
+                position = queue.enqueue(QueuedTask(
+                    member=member,
+                    task_description=cleaned_message[:100],
+                    task_prompt=task_prompt,
+                    thread_ts=thread_ts,
+                    channel_id=channel_id,
+                    files=files_for_task or [],
+                    project=result.get("project"),
+                ))
                 await client.chat_postMessage(
                     channel=channel_id,
                     thread_ts=thread_ts,
-                    text=f":x: Failed to spawn work session for {member.title()}.",
+                    text=(
+                        f":hourglass: {member.title()} is queued — "
+                        f"{active_count} sessions active (max {MAX_CONCURRENT_SESSIONS}). "
+                        f"Position: {position}. Will start when a session frees up."
+                    ),
                 )
+            else:
+                # Detect file conflicts and warn in Slack BEFORE starting
+                if files_for_task:
+                    conflicts = session_mgr.detect_file_conflicts(member, files_for_task)
+                    for other_member, overlap in conflicts:
+                        await client.chat_postMessage(
+                            channel=channel_id,
+                            thread_ts=thread_ts,
+                            text=(
+                                f":warning: *File conflict warning*: {member.title()} and "
+                                f"{other_member.title()} both targeting `{', '.join(overlap)}`. "
+                                f"Coordinate to avoid clobbering each other's changes."
+                            ),
+                        )
+
+                # Start new session
+                success = await session_mgr.start_session(
+                    member=member,
+                    task_description=cleaned_message[:100],
+                    task_prompt=task_prompt,
+                    thread_ts=thread_ts,
+                    channel_id=channel_id,
+                    files=files_for_task or [],
+                    project=result.get("project"),
+                )
+                if not success:
+                    await client.chat_postMessage(
+                        channel=channel_id,
+                        thread_ts=thread_ts,
+                        text=f":x: Failed to spawn work session for {member.title()}.",
+                    )
 
         return True
 
