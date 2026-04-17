@@ -103,23 +103,30 @@ async def handle_chat_hub_message(
     """
     # Remove bot mention from message
     cleaned_message = extract_bot_mention(user_message, bot_user_id)
+    logger.info(f"[ChatHub] Processing: '{cleaned_message[:80]}' project={project}")
 
     # Scan for prompt injection attempts (logs to audit, does NOT block)
     log_if_suspicious(cleaned_message, source=f"slack:{channel_id}:{thread_ts}")
 
     # Post "Marcus is thinking..." immediately so the user knows the bot is working.
-    # This stays visible while Claude CLI processes the request (can take 10-30s).
     thinking_response = await client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
         text=":hourglass: *Marcus* is thinking...",
     )
     thinking_ts = thinking_response["ts"]
+    logger.info("[ChatHub] Posted thinking indicator, calling Claude CLI...")
 
     # Check if this is a work request
     hub = get_chat_hub()
     history = get_conversation_history(thread_ts)
     result = await hub.process_message(cleaned_message, thread_ts=thread_ts, conversation_history=history, project=project)
+    logger.info(
+        f"[ChatHub] Hub returned type={result['type']} "
+        f"target={result.get('target_persona')} "
+        f"explicit={result.get('persona_explicit')} "
+        f"project={result.get('project')}"
+    )
 
     if result["type"] == "work_request":
         # Delete the thinking message — work request flow posts its own messages
@@ -131,7 +138,9 @@ async def handle_chat_hub_message(
         # Work request detected - spawn persona tab
         member = result["target_persona"]
         task_prompt = result["task_prompt"]
+        logger.info(f"[ChatHub] Work request for {member}, explicit={result.get('persona_explicit')}")
 
+        logger.info(f"[ChatHub] Budget check...")
         # Budget gate: refuse to spawn new work sessions when daily cap is hit.
         # (Cheap chat responses are still allowed below.)
         from .cost_tracking import is_budget_exceeded, get_today_spend, DAILY_BUDGET_USD
@@ -154,8 +163,10 @@ async def handle_chat_hub_message(
 
         # Smart routing: if no persona was explicitly named, suggest the best match
         if not result.get("persona_explicit", True):
+            logger.info("[ChatHub] No explicit persona — trying smart routing...")
             from .teams import get_suggested_persona
             suggestion = get_suggested_persona(cleaned_message)
+            logger.info(f"[ChatHub] Smart routing suggestion: {suggestion}")
             if suggestion:
                 suggested_member, track_display, reason = suggestion
                 # Store the pending suggestion
@@ -192,13 +203,14 @@ async def handle_chat_hub_message(
         tmux = get_tmux_manager()
 
         if not tmux.session_exists():
-            # No tmux session - warn user
+            logger.warning("[ChatHub] tmux session not running!")
             await client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=":warning: tmux session not running. Start it with `./scripts/start_anchovies.sh`",
             )
         elif session_mgr.has_session(member):
+            logger.info(f"[ChatHub] {member} already has active session, sending to existing tab")
             # Session already exists - send task to existing session
             await client.chat_postMessage(
                 channel=channel_id,
@@ -214,8 +226,10 @@ async def handle_chat_hub_message(
             from .task_queue import get_task_queue, QueuedTask, MAX_CONCURRENT_SESSIONS
             queue = get_task_queue()
             active_count = len(session_mgr.active_sessions)
+            logger.info(f"[ChatHub] Active sessions: {active_count}/{MAX_CONCURRENT_SESSIONS}")
 
             if active_count >= MAX_CONCURRENT_SESSIONS:
+                logger.info(f"[ChatHub] At capacity — queuing {member}")
                 # Queue the task instead of spawning
                 position = queue.enqueue(QueuedTask(
                     member=member,
@@ -251,6 +265,7 @@ async def handle_chat_hub_message(
                         )
 
                 # Start new session
+                logger.info(f"[ChatHub] Spawning {member} for '{cleaned_message[:50]}'...")
                 success = await session_mgr.start_session(
                     member=member,
                     task_description=cleaned_message[:100],
@@ -260,6 +275,7 @@ async def handle_chat_hub_message(
                     files=files_for_task or [],
                     project=result.get("project"),
                 )
+                logger.info(f"[ChatHub] Spawn result for {member}: {'SUCCESS' if success else 'FAILED'}")
                 if not success:
                     await client.chat_postMessage(
                         channel=channel_id,
@@ -394,6 +410,8 @@ async def handle_team_message(
         source_member: Name of the team member who triggered this (for crosstalk)
         use_chat_hub: If True, route through Chat Hub first (default: True)
     """
+    logger.info(f"[Handler] Message from {user_id}: '{user_message[:60]}' channel={channel_id} crosstalk={is_crosstalk}")
+
     # Rate limiting (skip for crosstalk — that's bot-to-bot, not user-driven)
     if not is_crosstalk:
         limiter = get_rate_limiter()
@@ -427,6 +445,7 @@ async def handle_team_message(
     # Extract [project] tag early so it's available for all code paths
     from .router import extract_project_tag
     message_project, cleaned_message = extract_project_tag(cleaned_message)
+    logger.info(f"[Handler] Project tag: {message_project}, cleaned: '{cleaned_message[:60]}'")
 
     # If no tag, check for default project from registry
     if message_project is None:
@@ -485,6 +504,12 @@ async def handle_team_message(
     # Work requests should go through Chat Hub regardless of target persona
     if use_chat_hub and not is_crosstalk:
         work_info = detect_work_request(cleaned_message)
+        logger.info(
+            f"[Handler] Work detection: is_work={work_info['is_work_request']} "
+            f"confidence={work_info.get('confidence', '?')} "
+            f"target={work_info.get('target_persona')} "
+            f"explicit={work_info.get('persona_explicit')}"
+        )
         if work_info["is_work_request"]:
             # Route through Chat Hub for work requests
             handled = await handle_chat_hub_message(
