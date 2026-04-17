@@ -594,6 +594,30 @@ async def _handle_control_command(client, channel_id: str, thread_ts: str, messa
         )
         return True
 
+    # --- reflect ---
+    reflect_match = re.match(r"reflect\s*(\w*)", msg)
+    if reflect_match:
+        member_name = reflect_match.group(1) or None
+        if member_name and member_name in config.TEAM_MEMBERS:
+            from .reflection import manual_reflect
+            reflection = await manual_reflect(member_name, project=None)
+            if reflection:
+                await client.chat_postMessage(
+                    channel=channel_id, thread_ts=thread_ts,
+                    text=f":mirror: *{member_name.title()}'s Reflection:*\n\n{reflection}",
+                )
+            else:
+                await client.chat_postMessage(
+                    channel=channel_id, thread_ts=thread_ts,
+                    text=f":warning: Reflection failed for {member_name.title()}.",
+                )
+        else:
+            await client.chat_postMessage(
+                channel=channel_id, thread_ts=thread_ts,
+                text=":mirror: Usage: `reflect <persona_name>` — e.g., `reflect sofia`",
+            )
+        return True
+
     # --- daily summary ---
     if msg in ("daily summary", "summary", "status summary"):
         from .cost_tracking import get_today_spend, DAILY_BUDGET_USD

@@ -102,11 +102,29 @@ def format_slack_message(member: str, summary: str) -> str:
     return f"*{member.title()}:* {summary}"
 
 
+async def trigger_auto_reflect(
+    member: str,
+    task_description: str,
+    project: str | None = None,
+) -> str | None:
+    """
+    Trigger an auto-reflection after session completion.
+    Returns the reflection text, or None on failure.
+    """
+    try:
+        from ..reflection import auto_reflect
+        return await auto_reflect(member, task_description, project)
+    except Exception as e:
+        logger.error(f"Auto-reflection trigger failed for {member}: {e}")
+        return None
+
+
 def complete_task(
     member: str,
     summary: str,
     task: str = "",
     auto_close: bool = False,
+    project: str | None = None,
 ) -> dict:
     """
     Run the completion sequence for a work session.
@@ -116,6 +134,7 @@ def complete_task(
         summary: Summary of what was accomplished
         task: Original task description
         auto_close: If True, close without prompting
+        project: Optional project slug for project-specific status
 
     Returns:
         dict with completion status info
