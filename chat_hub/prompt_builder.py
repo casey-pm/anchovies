@@ -135,6 +135,7 @@ def detect_work_request(message: str) -> dict:
         "needs_clarification": needs_clarification,
         "confidence": confidence,
         "target_persona": target_persona or config.DEFAULT_MEMBER,
+        "persona_explicit": target_persona is not None,  # True if @name or name was in message
         "task_description": task_description,
         "files": files,
     }

@@ -203,6 +203,7 @@ class ChatHub:
                 "response": f"Got it. I'll set up a work session for {work_info['target_persona'].title()}.",
                 "task_prompt": task_prompt,
                 "target_persona": work_info["target_persona"],
+                "persona_explicit": work_info.get("persona_explicit", True),
                 "files": work_info.get("files", []),
                 "project": project,
             }

@@ -58,6 +58,14 @@ MAX_CHAIN_DEPTH = int(os.getenv("MAX_SUMMON_DEPTH", "3"))
 # Pause flag — when True, the bot refuses new work requests (chat still works)
 _paused: bool = False
 
+# Pending routing suggestions — thread_ts -> suggestion details
+# When Marcus suggests a persona, the suggestion is stored here until
+# Casey confirms ("yes") or names a different persona.
+import time as _time
+
+_pending_suggestions: dict[str, dict] = {}
+SUGGESTION_TIMEOUT_SECONDS = 300  # 5 minutes
+
 
 def get_conversation_history(thread_ts: str) -> list[dict]:
     """Get conversation history for a thread, updating LRU position."""
@@ -128,6 +136,34 @@ async def handle_chat_hub_message(
                 f"(${spend:.2f}/${DAILY_BUDGET_USD:.2f})"
             )
             return True
+
+        # Smart routing: if no persona was explicitly named, suggest the best match
+        if not result.get("persona_explicit", True):
+            from .teams import get_suggested_persona
+            suggestion = get_suggested_persona(cleaned_message)
+            if suggestion:
+                suggested_member, track_display, reason = suggestion
+                # Store the pending suggestion
+                _pending_suggestions[thread_ts] = {
+                    "suggested_member": suggested_member,
+                    "track": track_display,
+                    "reason": reason,
+                    "task_description": cleaned_message,
+                    "task_prompt": task_prompt,
+                    "files": result.get("files", []),
+                    "project": project,
+                    "created_at": _time.time(),
+                }
+                await client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=thread_ts,
+                    text=(
+                        f":mag: *Marcus:* This looks like a task for "
+                        f"*{suggested_member.title()}* ({reason}).\n"
+                        f"Reply *yes* to assign, or name a different persona."
+                    ),
+                )
+                return True
 
         # Post acknowledgment to Slack
         await client.chat_postMessage(
@@ -400,6 +436,13 @@ async def handle_team_message(
         except Exception:
             pass
 
+    # Check for pending routing suggestion confirmation
+    suggestion_handled = await _check_pending_suggestion(
+        client, channel_id, thread_ts, cleaned_message
+    )
+    if suggestion_handled:
+        return
+
     # Check for help request
     if cleaned_message.lower().strip() in ("help", "?", ""):
         await client.chat_postMessage(
@@ -504,6 +547,117 @@ async def handle_team_message(
         # Small delay between multiple members
         if len(routing.members) > 1:
             await asyncio.sleep(0.5)
+
+
+async def _check_pending_suggestion(
+    client, channel_id: str, thread_ts: str, message: str,
+) -> bool:
+    """
+    Check if there's a pending routing suggestion for this thread and
+    handle confirmation/redirection.
+
+    Returns True if the message was a confirmation (handled), False otherwise.
+    """
+    # Clean up expired suggestions
+    now = _time.time()
+    expired = [ts for ts, s in _pending_suggestions.items()
+               if now - s["created_at"] > SUGGESTION_TIMEOUT_SECONDS]
+    for ts in expired:
+        del _pending_suggestions[ts]
+
+    # Check if this thread has a pending suggestion
+    suggestion = _pending_suggestions.get(thread_ts)
+    if not suggestion:
+        return False
+
+    msg = message.strip().lower()
+
+    # "yes", "go", "do it", "ok" = confirm the suggested persona
+    if msg in ("yes", "go", "do it", "ok", "sure", "go ahead", "y"):
+        del _pending_suggestions[thread_ts]
+        member = suggestion["suggested_member"]
+        await _spawn_from_suggestion(client, channel_id, thread_ts, suggestion, member)
+        return True
+
+    # A persona name = redirect to that persona instead
+    resolved = config.get_member_name(msg)
+    if resolved:
+        del _pending_suggestions[thread_ts]
+        # Rebuild prompt for the new persona
+        suggestion["suggested_member"] = resolved
+        await _spawn_from_suggestion(client, channel_id, thread_ts, suggestion, resolved)
+        return True
+
+    # "no" or "cancel" = discard the suggestion
+    if msg in ("no", "cancel", "nevermind", "nah"):
+        del _pending_suggestions[thread_ts]
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text=":x: Suggestion cancelled.",
+        )
+        return True
+
+    # Any other message — not a confirmation, fall through to normal routing
+    # (the suggestion stays pending)
+    return False
+
+
+async def _spawn_from_suggestion(
+    client, channel_id: str, thread_ts: str, suggestion: dict, member: str,
+) -> None:
+    """Spawn a work session from a confirmed routing suggestion."""
+    from .chat_hub.prompt_builder import build_task_prompt
+
+    task_description = suggestion["task_description"]
+    project = suggestion.get("project")
+    files = suggestion.get("files", [])
+
+    task_prompt = build_task_prompt(
+        persona=member,
+        task_description=task_description,
+        files=files,
+        context=task_description,
+        thread_ts=thread_ts,
+        project=project,
+    )
+
+    session_mgr = get_session_manager()
+
+    from .task_queue import get_task_queue, QueuedTask, MAX_CONCURRENT_SESSIONS
+    queue = get_task_queue()
+    active_count = len(session_mgr.active_sessions)
+
+    if active_count >= MAX_CONCURRENT_SESSIONS:
+        position = queue.enqueue(QueuedTask(
+            member=member, task_description=task_description[:100],
+            task_prompt=task_prompt, thread_ts=thread_ts,
+            channel_id=channel_id, files=files, project=project,
+        ))
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text=f":hourglass: {member.title()} queued (position {position}).",
+        )
+        return
+
+    await client.chat_postMessage(
+        channel=channel_id, thread_ts=thread_ts,
+        text=f":hammer_and_wrench: Spawning {member.title()} for this task...",
+    )
+
+    success = await session_mgr.start_session(
+        member=member,
+        task_description=task_description[:100],
+        task_prompt=task_prompt,
+        thread_ts=thread_ts,
+        channel_id=channel_id,
+        files=files,
+        project=project,
+    )
+    if not success:
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text=f":x: Failed to spawn {member.title()}.",
+        )
 
 
 async def _handle_control_command(client, channel_id: str, thread_ts: str, message: str) -> bool:
