@@ -283,6 +283,16 @@ def build_task_prompt(
         for skill in profile.expertise:
             parts.append(f"- {skill}")
 
+    # Acquired skills from previous sessions (skill tracking)
+    try:
+        from ..skill_tracking import format_skills_for_prompt
+        acquired = format_skills_for_prompt(persona)
+        if acquired:
+            parts.append("")
+            parts.append(acquired)
+    except Exception:
+        pass
+
     # Add memory (lessons learned) if available
     if member_context.memory_content:
         parts.append("")

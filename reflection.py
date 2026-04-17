@@ -122,6 +122,17 @@ async def auto_reflect(
         except Exception:
             pass
 
+        # Extract and save skills from the reflection
+        try:
+            from .skill_tracking import extract_skills_from_reflection, save_skills_to_profile
+            skills = extract_skills_from_reflection(reflection)
+            if skills:
+                added = save_skills_to_profile(member, skills, project)
+                if added:
+                    logger.info(f"Added {added} skill(s) to {member}'s profile from reflection")
+        except Exception as e:
+            logger.error(f"Skill extraction failed for {member}: {e}")
+
         logger.info(f"Auto-reflection saved for {member}")
         return reflection
 
