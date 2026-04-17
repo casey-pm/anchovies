@@ -37,6 +37,7 @@ class Project:
     description: str = ""
     default_branch: str = "main"
     active: bool = True
+    authority: dict | None = None  # {"autonomous": [...], "escalate": [...]}
 
 
 def ensure_project_dirs(project: Project) -> None:
@@ -139,6 +140,7 @@ class ProjectRegistry:
                         description=pdata.get("description", ""),
                         default_branch=pdata.get("default_branch", "main"),
                         active=pdata.get("active", True),
+                        authority=pdata.get("authority"),
                     )
                 self._default_project = data.get("default_project")
                 if self._default_project:
@@ -173,6 +175,7 @@ class ProjectRegistry:
                     "description": p.description,
                     "default_branch": p.default_branch,
                     "active": p.active,
+                    "authority": p.authority,
                 }
         self._yaml_path.parent.mkdir(parents=True, exist_ok=True)
         self._yaml_path.write_text(

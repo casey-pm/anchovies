@@ -380,6 +380,44 @@ def build_task_prompt(
         "Do NOT create files, directories, or repositories outside of this path.",
         "Do NOT cd to or operate in any directory outside `/home/casey/paradise_brain/`.",
         "",
+    ])
+
+    # Project-specific decision authority (if project has authority config)
+    _authority = None
+    if project:
+        try:
+            from ..project_registry import get_project_registry
+            _proj = get_project_registry().get(project)
+            if _proj and _proj.authority:
+                _authority = _proj.authority
+        except Exception:
+            pass
+
+    if _authority:
+        parts.extend([
+            "### Decision Authority for This Project",
+            "",
+            "**You CAN decide autonomously:**",
+        ])
+        for item in _authority.get("autonomous", []):
+            parts.append(f"- {item}")
+        parts.extend([
+            "",
+            "**You MUST escalate to Casey (post to Slack and wait):**",
+        ])
+        for item in _authority.get("escalate", []):
+            parts.append(f"- {item}")
+        parts.append("")
+    else:
+        # Default authority when no project-specific config
+        parts.extend([
+            "### Decision Authority (Default)",
+            "- You CAN: commit to feature branch, run tests, fix bugs, update docs",
+            "- You MUST ESCALATE: delete files, change APIs, modify schemas, install deps",
+            "",
+        ])
+
+    parts.extend([
         "### Destructive Operations (REQUIRE APPROVAL)",
         "Before performing ANY of these operations, you MUST post a message to Slack",
         "describing what you want to do and why, then WAIT for Casey's explicit approval:",
