@@ -748,6 +748,88 @@ async def _handle_control_command(client, channel_id: str, thread_ts: str, messa
         )
         return True
 
+    # --- brief ---
+    if msg.startswith("brief ") or msg == "brief":
+        from .director import create_project_brief
+        from .router import extract_project_tag
+        brief_project, brief_text = extract_project_tag(message.strip())
+        # Strip "brief" prefix
+        brief_text = re.sub(r"^brief\s*", "", brief_text, flags=re.IGNORECASE).strip()
+        if not brief_text:
+            brief_text = "General project overview"
+        brief = create_project_brief(
+            task_description=brief_text,
+            project=brief_project,
+        )
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text=f":clipboard: *Marcus:*\n\n{brief}",
+        )
+        return True
+
+    # --- consult ---
+    if msg.startswith("consult ") or msg == "consult":
+        from .director import create_project_brief, compile_consultation
+        from .teams import get_relevant_personas
+        from .router import extract_project_tag
+        from .cli_runner import run_claude_cli
+
+        consult_project, consult_text = extract_project_tag(message.strip())
+        consult_text = re.sub(r"^consult\s*", "", consult_text, flags=re.IGNORECASE).strip()
+        if not consult_text:
+            await client.chat_postMessage(
+                channel=channel_id, thread_ts=thread_ts,
+                text=":warning: Usage: `consult [project] <task description>`",
+            )
+            return True
+
+        # Find relevant personas to consult
+        relevant = get_relevant_personas(consult_text, n=5)
+        if not relevant:
+            await client.chat_postMessage(
+                channel=channel_id, thread_ts=thread_ts,
+                text=":mag: No relevant personas found for this task. Try being more specific.",
+            )
+            return True
+
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text=f":speech_balloon: Consulting {len(relevant)} persona(s): {', '.join(r[0].title() for r in relevant)}...",
+        )
+
+        # Gather input from each persona concurrently
+        import asyncio as _asyncio
+        persona_inputs = {}
+
+        async def _get_persona_input(member_name, role_track):
+            prompt = (
+                f"You are {member_name.title()}, on the {role_track} track. "
+                f"You've been asked for your perspective on:\n"
+                f"{consult_text}\n"
+                f"In 2-3 sentences, share your key concern, suggestion, or insight "
+                f"from your area of expertise. Be specific and actionable."
+            )
+            try:
+                response = await run_claude_cli(prompt, model=config.CHAT_MODEL)
+                persona_inputs[member_name] = response
+            except Exception as e:
+                persona_inputs[member_name] = f"_(consultation failed: {e})_"
+
+        tasks = [
+            _get_persona_input(member, get_track_display_name(track))
+            for member, track, _ in relevant
+        ]
+        from .teams import get_track_display_name
+        await _asyncio.gather(*tasks)
+
+        # Compile the consultation
+        compiled = compile_consultation(consult_text, persona_inputs, consult_project)
+        await client.chat_postMessage(
+            channel=channel_id, thread_ts=thread_ts,
+            text=f":clipboard: *Team Consultation:*\n\n{compiled}",
+        )
+        return True
+
     # --- reflect ---
     reflect_match = re.match(r"reflect\s*(\w*)", msg)
     if reflect_match:
