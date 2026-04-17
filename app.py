@@ -22,11 +22,9 @@ from .handlers import handle_team_message, conversation_store
 from .storage import get_storage
 from .work_sessions import get_session_manager
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure structured logging (JSON file + console)
+from .logging_config import setup_logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
