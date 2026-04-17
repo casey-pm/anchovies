@@ -304,6 +304,12 @@ async def async_main():
     print("Bot is running! Press Ctrl+C to stop gracefully.")
     print("Waiting for messages...\n")
 
+    # Start the watchdog background task
+    from .watchdog import watchdog_loop
+    watchdog_task = asyncio.create_task(
+        watchdog_loop(async_client, shutdown_event)
+    )
+
     # Run handler and wait for shutdown signal concurrently
     handler_task = asyncio.create_task(handler.start_async())
     shutdown_task = asyncio.create_task(shutdown_event.wait())
@@ -320,6 +326,13 @@ async def async_main():
             await task
         except asyncio.CancelledError:
             pass
+
+    # Stop the watchdog
+    watchdog_task.cancel()
+    try:
+        await watchdog_task
+    except asyncio.CancelledError:
+        pass
 
     # Run graceful shutdown sequence
     await graceful_shutdown(handler, async_client)
