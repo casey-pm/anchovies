@@ -335,6 +335,27 @@ class TestAssignCommand:
 # ---------------------------------------------------------------------------
 
 
+class TestNoUpdateOnDeletedMessage:
+    """Verify we never call chat_update on a message that was already chat_deleted."""
+
+    def test_marcus_guard_uses_post_not_update(self):
+        """The Marcus guard should use chat_postMessage, NOT chat_update on thinking_ts."""
+        source = inspect.getsource(handlers_module.handle_chat_hub_message)
+        # Find the Marcus guard section
+        guard_start = source.index("Marcus is the target")
+        guard_section = source[guard_start:guard_start + 500]
+        # Should use chat_postMessage, not chat_update
+        assert "chat_postMessage" in guard_section
+        assert "chat_update" not in guard_section or "thinking_ts" not in guard_section.split("chat_update")[1][:50]
+
+    def test_no_routing_match_uses_post_not_update(self):
+        """The 'no smart routing match' path should post a new message, not update deleted one."""
+        source = inspect.getsource(handlers_module.handle_chat_hub_message)
+        no_match_start = source.index("No smart routing match")
+        no_match_section = source[no_match_start:no_match_start + 500]
+        assert "chat_postMessage" in no_match_section
+
+
 class TestEndToEndFlow:
     def test_handler_has_thinking_indicator(self):
         source = inspect.getsource(handlers_module.handle_chat_hub_message)

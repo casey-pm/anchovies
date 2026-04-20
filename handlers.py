@@ -191,46 +191,38 @@ async def handle_chat_hub_message(
                 )
                 return True
             else:
-                # No keyword match — fall through to chat so Marcus can discuss and recommend
+                # No keyword match — Marcus discusses and recommends (no spawn)
                 logger.info("[ChatHub] No smart routing match — Marcus will discuss and recommend")
-                # Don't spawn. Delete thinking msg and go to chat path.
-                try:
-                    await client.chat_delete(channel=channel_id, ts=thinking_ts)
-                except Exception:
-                    pass
-                # Jump to the chat response path (result already has Marcus's response)
-                # We need to re-enter the chat path — simplest: just return the chat handling
                 context = load_member_context(config.CHAT_HUB_PERSONA)
                 profile = context.profile
-                thinking2 = await client.chat_postMessage(
-                    channel=channel_id, thread_ts=thread_ts,
-                    text=":hourglass: *Marcus* is thinking...",
-                )
                 response = result["response"]
-                await client.chat_update(
-                    channel=channel_id, ts=thinking2["ts"],
-                    blocks=messages.build_response_message(profile.name, response, profile.avatar_emoji),
-                    text=f"{profile.name}: {response[:100]}...",
-                )
+                # Post Marcus's response as a new message (thinking_ts was already deleted)
+                if response:
+                    await client.chat_postMessage(
+                        channel=channel_id,
+                        thread_ts=thread_ts,
+                        blocks=messages.build_response_message(profile.name, response, profile.avatar_emoji),
+                        text=f"{profile.name}: {response[:100]}...",
+                    )
                 add_to_conversation(thread_ts, "user", cleaned_message)
                 add_to_conversation(thread_ts, "assistant", response, config.CHAT_HUB_PERSONA)
                 _detect_assignment_in_response(response, thread_ts, cleaned_message, project)
                 return True
 
         # Guard: NEVER spawn Marcus as a worker — show his chat response instead
+        # NOTE: thinking_ts was already deleted above, so we post a NEW message
         if member == config.CHAT_HUB_PERSONA:
             logger.info("[ChatHub] Marcus is the target — responding as Director (not spawning)")
             context = load_member_context(config.CHAT_HUB_PERSONA)
             profile = context.profile
             response = result.get("response", "")
             if response:
-                await client.chat_update(
-                    channel=channel_id, ts=thinking_ts,
+                await client.chat_postMessage(
+                    channel=channel_id,
+                    thread_ts=thread_ts,
                     blocks=messages.build_response_message(profile.name, response, profile.avatar_emoji),
                     text=f"{profile.name}: {response[:100]}...",
                 )
-            else:
-                await client.chat_delete(channel=channel_id, ts=thinking_ts)
             add_to_conversation(thread_ts, "user", cleaned_message)
             add_to_conversation(thread_ts, "assistant", response, config.CHAT_HUB_PERSONA)
             _detect_assignment_in_response(response, thread_ts, cleaned_message, project)
