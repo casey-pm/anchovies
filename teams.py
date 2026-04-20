@@ -138,10 +138,14 @@ def get_relevant_personas(task_description: str, n: int = 5) -> list[tuple[str, 
     scores.sort(key=lambda x: x[2], reverse=True)
 
     # Deduplicate (a member can only appear once)
+    # Exclude Marcus — he's the Director, never a work assignee
+    from . import config
+    director = config.CHAT_HUB_PERSONA
+
     seen = set()
     unique: list[tuple[str, str, float]] = []
     for member, track, score in scores:
-        if member not in seen:
+        if member not in seen and member != director:
             seen.add(member)
             unique.append((member, track, score))
 
