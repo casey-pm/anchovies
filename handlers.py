@@ -400,9 +400,11 @@ def _detect_assignment_in_response(
     """
     # Look for assignment patterns mentioning a team member
     assignment_patterns = [
-        r"(?:I'll have|Let's have|I'll assign|Let's assign|start with|I recommend)\s+(\w+)",
-        r"(\w+)\s+(?:should start|can start|will start|can handle|should handle|can take|should take)",
+        r"(?:I'll have|Let's have|I'll assign|Let's assign|start with)\s+(\w+)",
+        r"(?:I recommend|recommend)\s+(?:starting with|assigning|having)?\s*(\w+)",
+        r"(\w+)\s+(?:should start|can start|will start|can handle|should handle|can take|should take|should work on|can work on)",
         r"(?:assign|send|give)\s+(?:this|it|the task)\s+to\s+(\w+)",
+        r"(?:Let's start with|begin with|kick off with)\s+(\w+)",
     ]
 
     for pattern in assignment_patterns:
