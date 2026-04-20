@@ -205,7 +205,23 @@ class ChatHub:
             }
 
         if work_info["is_work_request"]:
-            # Build task prompt for the work session
+            # If no explicit persona was named, Marcus should THINK about it as Director
+            # (call Claude CLI) rather than returning a canned "I'll set up a session" string.
+            # This lets Marcus plan, recommend personas, and propose next steps.
+            if not work_info.get("persona_explicit", True):
+                logger.info("[Hub] Work request with no explicit persona — Marcus will respond as Director")
+                response = await self._get_chat_response(message, conversation_history, project=project)
+                return {
+                    "type": "work_request",
+                    "response": response,
+                    "task_prompt": None,  # No prompt yet — Casey confirms persona first
+                    "target_persona": work_info["target_persona"],
+                    "persona_explicit": False,
+                    "files": work_info.get("files", []),
+                    "project": project,
+                }
+
+            # Build task prompt for the work session (explicit persona named)
             # Include conversation history for context
             history_context = ""
             if conversation_history:

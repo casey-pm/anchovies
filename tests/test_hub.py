@@ -22,12 +22,26 @@ class TestProcessMessage:
     """Test ChatHub.process_message routing."""
 
     @pytest.mark.anyio
-    async def test_work_request_detected(self, hub):
-        """A clear work request returns type='work_request'."""
-        result = await hub.process_message("fix the bug in app.py")
+    async def test_work_request_with_explicit_persona(self, hub):
+        """A work request with explicit persona returns task_prompt."""
+        result = await hub.process_message("@sofia fix the bug in app.py")
         assert result["type"] == "work_request"
         assert result["task_prompt"] is not None
-        assert result["target_persona"] is not None
+        assert result["target_persona"] == "sofia"
+        assert result["persona_explicit"] is True
+
+    @pytest.mark.anyio
+    async def test_work_request_no_persona_marcus_thinks(self, hub):
+        """A work request with no persona — Marcus thinks as Director."""
+        with patch("anchovies.chat_hub.hub.run_claude_cli", new_callable=AsyncMock) as mock_cli:
+            mock_cli.return_value = "Here's my plan. I'll have Sofia start."
+            result = await hub.process_message("fix the bug in app.py")
+        assert result["type"] == "work_request"
+        assert result["persona_explicit"] is False
+        # task_prompt is None because persona hasn't been confirmed yet
+        assert result["task_prompt"] is None
+        # But Marcus's response should be his actual Director thinking
+        assert "plan" in result["response"].lower() or "Sofia" in result["response"]
 
     @pytest.mark.anyio
     async def test_chat_message_uses_async_cli(self, hub):
