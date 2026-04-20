@@ -120,6 +120,7 @@ async def handle_chat_hub_message(
     # Check if this is a work request
     hub = get_chat_hub()
     history = get_conversation_history(thread_ts)
+    logger.info(f"[ChatHub] Conversation history for thread {thread_ts}: {len(history)} messages")
     result = await hub.process_message(cleaned_message, thread_ts=thread_ts, conversation_history=history, project=project)
     logger.info(
         f"[ChatHub] Hub returned type={result['type']} "

@@ -120,6 +120,24 @@ def setup_logging(
         file_handler.setFormatter(JSONFormatter())
         root.addHandler(file_handler)
 
+    # Human-readable session log — wiped on each restart so it only has current session.
+    # NOT gitignored — Claude Code can read this to debug issues.
+    session_log_path = log_dir.parent / "session.log"
+    if enable_file:
+        # Wipe previous session
+        try:
+            session_log_path.write_text("")
+        except Exception:
+            pass
+        session_handler = logging.FileHandler(
+            str(session_log_path),
+            mode="w",  # Overwrite on each startup
+            encoding="utf-8",
+        )
+        session_handler.setLevel(logging.DEBUG)
+        session_handler.setFormatter(ConsoleFormatter())
+        root.addHandler(session_handler)
+
     # Quiet down noisy libraries
     logging.getLogger("slack_bolt").setLevel(logging.WARNING)
     logging.getLogger("slack_sdk").setLevel(logging.WARNING)
