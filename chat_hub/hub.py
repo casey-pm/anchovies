@@ -209,11 +209,13 @@ class ChatHub:
                 f"[Hub] Work request detected: persona_explicit={work_info.get('persona_explicit')} "
                 f"target={work_info.get('target_persona')} confidence={work_info.get('confidence')}"
             )
-            # If no explicit persona was named, Marcus should THINK about it as Director
-            # (call Claude CLI) rather than returning a canned "I'll set up a session" string.
-            # This lets Marcus plan, recommend personas, and propose next steps.
-            if not work_info.get("persona_explicit", True):
-                logger.info("[Hub] Work request with no explicit persona — Marcus will respond as Director")
+            # If no explicit persona was named (or Marcus was named — he's the Director,
+            # not a worker), Marcus should THINK about it as Director: plan, recommend, delegate.
+            # "hey marcus, build X" = talking TO the Director, not assigning marcus as worker.
+            persona_is_marcus = work_info.get("target_persona") == config.CHAT_HUB_PERSONA
+            truly_explicit = work_info.get("persona_explicit", True) and not persona_is_marcus
+            if not truly_explicit:
+                logger.info(f"[Hub] No explicit worker persona (persona_is_marcus={persona_is_marcus}) — Marcus will respond as Director")
                 response = await self._get_chat_response(message, conversation_history, project=project)
                 return {
                     "type": "work_request",
