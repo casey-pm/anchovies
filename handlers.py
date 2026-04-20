@@ -170,12 +170,15 @@ async def handle_chat_hub_message(
             logger.info(f"[ChatHub] Smart routing suggestion: {suggestion}")
             if suggestion:
                 suggested_member, track_display, reason = suggestion
+                # Clean up task description for sensible branch names
+                from .chat_hub.prompt_builder import extract_task_description
+                _clean_task = extract_task_description(cleaned_message) or cleaned_message
                 # Store the pending suggestion
                 _pending_suggestions[thread_ts] = {
                     "suggested_member": suggested_member,
                     "track": track_display,
                     "reason": reason,
-                    "task_description": cleaned_message,
+                    "task_description": _clean_task,
                     "task_prompt": task_prompt,
                     "files": result.get("files", []),
                     "project": project,
@@ -416,12 +419,19 @@ def _detect_assignment_in_response(
             name = match.group(1).lower()
             member = config.get_member_name(name)
             if member and member != "marcus":  # Don't suggest Marcus assigning to himself
+                # Clean up the task description — strip conversational prefixes
+                # so the branch name is sensible (not "hey-marcus-lets-start...")
+                from .chat_hub.prompt_builder import extract_task_description
+                clean_task = extract_task_description(original_message)
+                if not clean_task or len(clean_task) < 5:
+                    clean_task = original_message
+
                 # Create a pending suggestion
                 _pending_suggestions[thread_ts] = {
                     "suggested_member": member,
                     "track": "",
                     "reason": "recommended by Marcus",
-                    "task_description": original_message,
+                    "task_description": clean_task,
                     "task_prompt": "",  # Will be built at spawn time
                     "files": [],
                     "project": project,
