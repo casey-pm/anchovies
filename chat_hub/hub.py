@@ -205,6 +205,10 @@ class ChatHub:
             }
 
         if work_info["is_work_request"]:
+            logger.info(
+                f"[Hub] Work request detected: persona_explicit={work_info.get('persona_explicit')} "
+                f"target={work_info.get('target_persona')} confidence={work_info.get('confidence')}"
+            )
             # If no explicit persona was named, Marcus should THINK about it as Director
             # (call Claude CLI) rather than returning a canned "I'll set up a session" string.
             # This lets Marcus plan, recommend personas, and propose next steps.
