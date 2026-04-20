@@ -217,13 +217,23 @@ async def handle_chat_hub_message(
                 _detect_assignment_in_response(response, thread_ts, cleaned_message, project)
                 return True
 
-        # Guard: NEVER spawn Marcus as a worker
+        # Guard: NEVER spawn Marcus as a worker — show his chat response instead
         if member == config.CHAT_HUB_PERSONA:
-            logger.warning("[ChatHub] Refusing to spawn Marcus as worker — he's the Director")
-            try:
+            logger.info("[ChatHub] Marcus is the target — responding as Director (not spawning)")
+            context = load_member_context(config.CHAT_HUB_PERSONA)
+            profile = context.profile
+            response = result.get("response", "")
+            if response:
+                await client.chat_update(
+                    channel=channel_id, ts=thinking_ts,
+                    blocks=messages.build_response_message(profile.name, response, profile.avatar_emoji),
+                    text=f"{profile.name}: {response[:100]}...",
+                )
+            else:
                 await client.chat_delete(channel=channel_id, ts=thinking_ts)
-            except Exception:
-                pass
+            add_to_conversation(thread_ts, "user", cleaned_message)
+            add_to_conversation(thread_ts, "assistant", response, config.CHAT_HUB_PERSONA)
+            _detect_assignment_in_response(response, thread_ts, cleaned_message, project)
             return True
 
         # Post acknowledgment to Slack
