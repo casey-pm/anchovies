@@ -58,10 +58,9 @@ TRACKS: dict[str, dict] = {
         "lead": "marcus",
         "members": ["marcus", "kai", "olivia"],
         "keywords": [
-            "project", "review", "documentation", "quality",
-            "standards", "code review", "coordinate", "plan",
-            "status", "priority", "blocker", "decision",
-            "doc", "readme", "guide",
+            "code review", "review pr", "pull request", "quality standards",
+            "documentation", "doc", "readme", "guide",
+            "lint", "format", "style guide", "best practices",
         ],
     },
 }

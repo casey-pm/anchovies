@@ -181,15 +181,25 @@ async def handle_chat_hub_message(
                     "project": project,
                     "created_at": _time.time(),
                 }
+                # Post Marcus's Director response + the suggestion
+                marcus_response = result.get("response", "")
+                suggestion_text = (
+                    f":mag: *Marcus:* {marcus_response}\n\n"
+                    f"I'd suggest *{suggested_member.title()}* ({reason}) for this.\n"
+                    f"Reply *yes* to assign, or name a different persona."
+                ) if marcus_response else (
+                    f":mag: *Marcus:* This looks like a task for "
+                    f"*{suggested_member.title()}* ({reason}).\n"
+                    f"Reply *yes* to assign, or name a different persona."
+                )
                 await client.chat_postMessage(
                     channel=channel_id,
                     thread_ts=thread_ts,
-                    text=(
-                        f":mag: *Marcus:* This looks like a task for "
-                        f"*{suggested_member.title()}* ({reason}).\n"
-                        f"Reply *yes* to assign, or name a different persona."
-                    ),
+                    text=suggestion_text,
                 )
+                # Save conversation history so Marcus remembers this exchange
+                add_to_conversation(thread_ts, "user", cleaned_message)
+                add_to_conversation(thread_ts, "assistant", marcus_response or f"Suggested {suggested_member.title()} for this task.", config.CHAT_HUB_PERSONA)
                 return True
             else:
                 # No keyword match — Marcus discusses and recommends (no spawn)
