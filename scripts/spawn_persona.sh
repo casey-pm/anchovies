@@ -107,7 +107,7 @@ echo -e "${GREEN}Spawning work tab for: $PERSONA${NC}"
 tmux new-window -t $SESSION -n "$PERSONA" -c "$PARADISE_BRAIN"
 
 # Start claude (without system prompt - we'll paste it as first message)
-tmux send-keys -t $SESSION:$PERSONA "claude" Enter
+tmux send-keys -t $SESSION:$PERSONA "claude --dangerously-skip-permissions" Enter
 
 # Wait for Claude CLI to be ready (poll instead of fixed sleep)
 # Wait for Claude CLI process to start (check pane_current_command, not pane text)

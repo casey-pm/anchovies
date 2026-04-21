@@ -167,11 +167,13 @@ claude && exit 1
 # If claude starts, this loop waits then pastes
 '''
 
-        # Start claude in the new window
+        # Start claude with full permissions so personas can run bash commands
+        # (post to Slack, git commit, run tests, etc.) without permission prompts.
+        # Safety is enforced by prompt rules, not Claude Code's permission system.
         self._run_tmux(
             "send-keys",
             "-t", f"{self.session_name}:{member}",
-            "claude",
+            "claude --dangerously-skip-permissions",
             "Enter",
         )
 
