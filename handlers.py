@@ -411,12 +411,14 @@ def _detect_assignment_in_response(
     """
     # Look for assignment patterns — capture persona name AND the task after it
     # Group 1 = persona name, Group 2 = task description (what they should do)
+    # Names may have markdown bold: **Sofia** — so we use \*{0,2}(\w+)\*{0,2} to strip them
+    _name = r"\*{0,2}(\w+)\*{0,2}"  # captures "Sofia" from "Sofia", "*Sofia*", "**Sofia**"
     assignment_patterns = [
-        r"(?:I'll have|Let's have|I'll assign|Let's assign|start with)\s+(\w+)\s+(.*?)(?:\.|$)",
-        r"(?:I recommend|recommend)\s+(?:starting with|assigning|having)?\s*(\w+)\s+(.*?)(?:\.|$)",
-        r"(\w+)\s+(?:should start|can start|will start|can handle|should handle|should work on|can work on)\s+(.*?)(?:\.|$)",
-        r"(?:assign|send|give)\s+(?:this|it|the task)\s+to\s+(\w+)",
-        r"(?:Let's start with|begin with|kick off with)\s+(\w+)\s+(.*?)(?:\.|$)",
+        rf"(?:I'll have|Let's have|I'll assign|Let's assign|start with)\s+{_name}\s+(.*?)(?:\.|$)",
+        rf"(?:I recommend|recommend)\s+(?:starting with|assigning|having)?\s*{_name}\s+(.*?)(?:\.|$)",
+        rf"{_name}\s+(?:should start|can start|will start|can handle|should handle|should work on|can work on)\s+(.*?)(?:\.|$)",
+        rf"(?:assign|send|give)\s+(?:this|it|the task)\s+to\s+{_name}",
+        rf"(?:Let's start with|begin with|kick off with)\s+{_name}\s+(.*?)(?:\.|$)",
     ]
 
     for pattern in assignment_patterns:
