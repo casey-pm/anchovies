@@ -183,6 +183,12 @@ async def handle_chat_hub_message(
             if project and response:
                 _save_project_spec(project, response, cleaned_message)
 
+            # Auto-spawn: scan Marcus's response for assignments and execute them
+            if response:
+                await _auto_spawn_from_director(
+                    client, channel_id, thread_ts, response, cleaned_message, project
+                )
+
             return True
 
         # Guard: NEVER spawn Marcus as a worker — show his chat response instead
@@ -206,7 +212,12 @@ async def handle_chat_hub_message(
             if project and response:
                 _save_project_spec(project, response, cleaned_message)
 
-            _detect_assignment_in_response(response, thread_ts, cleaned_message, project)
+            # Auto-spawn from Marcus's recommendation
+            if response:
+                await _auto_spawn_from_director(
+                    client, channel_id, thread_ts, response, cleaned_message, project
+                )
+
             return True
 
         # Post acknowledgment to Slack
@@ -356,6 +367,102 @@ async def handle_chat_hub_message(
             text=f"Error from {profile.name}",
         )
         return True
+
+
+async def _auto_spawn_from_director(
+    client, channel_id: str, thread_ts: str,
+    director_response: str, original_message: str, project: str | None,
+) -> None:
+    """
+    Scan Marcus's Director response for assignments and auto-spawn personas.
+
+    When Marcus says "I'll have Sofia start on the core module", the system
+    detects this and spawns Sofia immediately — no copy-paste needed from Casey.
+    Supports spawning multiple personas if Marcus assigns several.
+    """
+    from .chat_hub.prompt_builder import build_task_prompt
+
+    _name = r"\*{0,2}(\w+)\*{0,2}"
+    assignment_patterns = [
+        rf"(?:I'll have|Let's have|I'll assign|Let's assign|start with)\s+{_name}\s+(.*?)(?:\.|$)",
+        rf"(?:I recommend|recommend)\s+(?:starting with|assigning|having)?\s*{_name}\s+(.*?)(?:\.|$)",
+        rf"{_name}\s+(?:should start|can start|will start|can handle|should handle|should work on|can work on)\s+(.*?)(?:\.|$)",
+        rf"(?:Let's start with|begin with|kick off with)\s+{_name}\s+(.*?)(?:\.|$)",
+    ]
+
+    spawned = []
+    session_mgr = get_session_manager()
+
+    for pattern in assignment_patterns:
+        for match in re.finditer(pattern, director_response, re.IGNORECASE | re.MULTILINE):
+            name = match.group(1).lower()
+            member = config.get_member_name(name)
+            if not member or member == "marcus" or member in spawned:
+                continue
+
+            # Extract task from Marcus's sentence
+            task_text = match.group(2).strip() if match.lastindex >= 2 else ""
+            task_text = re.sub(r"^(?:on|to|with|for|by)\s+", "", task_text, flags=re.IGNORECASE).strip()
+            if not task_text or len(task_text) < 5:
+                task_text = original_message
+
+            # Build context with Director's full plan
+            context = (
+                f"Director's Plan (from Marcus):\n{director_response}\n\n"
+                f"Your specific assignment: {task_text}"
+            )
+
+            task_prompt = build_task_prompt(
+                persona=member,
+                task_description=task_text,
+                context=context,
+                thread_ts=thread_ts,
+                project=project,
+            )
+
+            # Check capacity
+            from .task_queue import get_task_queue, QueuedTask, MAX_CONCURRENT_SESSIONS
+            active_count = len(session_mgr.active_sessions)
+            if active_count >= MAX_CONCURRENT_SESSIONS:
+                queue = get_task_queue()
+                queue.enqueue(QueuedTask(
+                    member=member, task_description=task_text[:100],
+                    task_prompt=task_prompt, thread_ts=thread_ts,
+                    channel_id=channel_id, project=project,
+                ))
+                await client.chat_postMessage(
+                    channel=channel_id, thread_ts=thread_ts,
+                    text=f":hourglass: {member.title()} queued (at capacity).",
+                )
+                continue
+
+            logger.info(f"[Director] Auto-spawning {member} for: {task_text[:50]}")
+            await client.chat_postMessage(
+                channel=channel_id, thread_ts=thread_ts,
+                text=f":rocket: Spawning {member.title()} as per Marcus's plan...",
+            )
+
+            success = await session_mgr.start_session(
+                member=member,
+                task_description=task_text[:100],
+                task_prompt=task_prompt,
+                thread_ts=thread_ts,
+                channel_id=channel_id,
+                project=project,
+            )
+            if success:
+                spawned.append(member)
+            else:
+                await client.chat_postMessage(
+                    channel=channel_id, thread_ts=thread_ts,
+                    text=f":x: Failed to spawn {member.title()}.",
+                )
+
+        if spawned:
+            break  # Don't match multiple patterns for the same assignments
+
+    if spawned:
+        logger.info(f"[Director] Auto-spawned from Marcus's plan: {spawned}")
 
 
 def _save_project_spec(project: str, director_response: str, original_request: str) -> None:
