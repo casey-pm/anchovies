@@ -220,7 +220,12 @@ async def handle_chat_hub_message(
                     )
                 add_to_conversation(thread_ts, "user", cleaned_message)
                 add_to_conversation(thread_ts, "assistant", response, config.CHAT_HUB_PERSONA)
+                logger.info(f"[ChatHub] Marcus's response (first 200 chars): {response[:200]}")
                 _detect_assignment_in_response(response, thread_ts, cleaned_message, project)
+                if thread_ts in _pending_suggestions:
+                    logger.info(f"[ChatHub] Pending suggestion created: {_pending_suggestions[thread_ts]['suggested_member']}")
+                else:
+                    logger.warning("[ChatHub] No assignment detected in Marcus's response — 'yes' won't work. Casey should use 'assign <name> <task>' instead.")
                 return True
 
         # Guard: NEVER spawn Marcus as a worker — show his chat response instead
