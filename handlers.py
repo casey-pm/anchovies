@@ -404,13 +404,14 @@ def _detect_assignment_in_response(
     in natural language) and the system's spawn mechanism (which needs explicit
     confirmation).
     """
-    # Look for assignment patterns mentioning a team member
+    # Look for assignment patterns — capture persona name AND the task after it
+    # Group 1 = persona name, Group 2 = task description (what they should do)
     assignment_patterns = [
-        r"(?:I'll have|Let's have|I'll assign|Let's assign|start with)\s+(\w+)",
-        r"(?:I recommend|recommend)\s+(?:starting with|assigning|having)?\s*(\w+)",
-        r"(\w+)\s+(?:should start|can start|will start|can handle|should handle|can take|should take|should work on|can work on)",
+        r"(?:I'll have|Let's have|I'll assign|Let's assign|start with)\s+(\w+)\s+(.*?)(?:\.|$)",
+        r"(?:I recommend|recommend)\s+(?:starting with|assigning|having)?\s*(\w+)\s+(.*?)(?:\.|$)",
+        r"(\w+)\s+(?:should start|can start|will start|can handle|should handle|should work on|can work on)\s+(.*?)(?:\.|$)",
         r"(?:assign|send|give)\s+(?:this|it|the task)\s+to\s+(\w+)",
-        r"(?:Let's start with|begin with|kick off with)\s+(\w+)",
+        r"(?:Let's start with|begin with|kick off with)\s+(\w+)\s+(.*?)(?:\.|$)",
     ]
 
     for pattern in assignment_patterns:
@@ -418,13 +419,20 @@ def _detect_assignment_in_response(
         if match:
             name = match.group(1).lower()
             member = config.get_member_name(name)
-            if member and member != "marcus":  # Don't suggest Marcus assigning to himself
-                # Clean up the task description — strip conversational prefixes
-                # so the branch name is sensible (not "hey-marcus-lets-start...")
-                from .chat_hub.prompt_builder import extract_task_description
-                clean_task = extract_task_description(original_message)
-                if not clean_task or len(clean_task) < 5:
-                    clean_task = original_message
+            if member and member != "marcus":
+                # Extract the task from Marcus's response (what he told the persona to do)
+                # This gives branch names like "build-calculator-core-module" instead of
+                # "hey-marcus-lets-start-working-on-calculator"
+                marcus_task = match.group(2).strip() if match.lastindex >= 2 else ""
+                # Clean: strip leading "on ", "to ", "with ", etc.
+                marcus_task = re.sub(r"^(?:on|to|with|for|by)\s+", "", marcus_task, flags=re.IGNORECASE).strip()
+
+                # Use Marcus's task if it's meaningful, otherwise fall back to cleaned user message
+                if marcus_task and len(marcus_task) > 10:
+                    clean_task = marcus_task
+                else:
+                    from .chat_hub.prompt_builder import extract_task_description
+                    clean_task = extract_task_description(original_message) or original_message
 
                 # Create a pending suggestion
                 _pending_suggestions[thread_ts] = {
