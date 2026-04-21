@@ -173,12 +173,13 @@ async def handle_chat_hub_message(
                 # Clean up task description for sensible branch names
                 from .chat_hub.prompt_builder import extract_task_description
                 _clean_task = extract_task_description(cleaned_message) or cleaned_message
-                # Store the pending suggestion
+                # Store the pending suggestion — include Marcus's Director plan
                 _pending_suggestions[thread_ts] = {
                     "suggested_member": suggested_member,
                     "track": track_display,
                     "reason": reason,
                     "task_description": _clean_task,
+                    "director_plan": result.get("response", ""),
                     "task_prompt": task_prompt,
                     "files": result.get("files", []),
                     "project": project,
@@ -441,17 +442,18 @@ def _detect_assignment_in_response(
                     from .chat_hub.prompt_builder import extract_task_description
                     clean_task = extract_task_description(original_message) or original_message
 
-                # Create a pending suggestion
+                # Create a pending suggestion — include Marcus's full plan as context
                 _pending_suggestions[thread_ts] = {
                     "suggested_member": member,
                     "track": "",
                     "reason": "recommended by Marcus",
                     "task_description": clean_task,
-                    "task_prompt": "",  # Will be built at spawn time
+                    "director_plan": response,  # Marcus's full Director analysis
+                    "task_prompt": "",
                     "files": [],
                     "project": project,
                     "created_at": _time.time(),
-                    "needs_prompt_build": True,  # Flag to build prompt at confirmation
+                    "needs_prompt_build": True,
                 }
                 logger.info(
                     f"[ChatHub] Marcus recommended {member} in response — "
@@ -763,12 +765,23 @@ async def _spawn_from_suggestion(
     task_description = suggestion["task_description"]
     project = suggestion.get("project")
     files = suggestion.get("files", [])
+    director_plan = suggestion.get("director_plan", "")
+
+    # Build context: include Marcus's Director plan so the persona knows
+    # the full picture (what the project is, what specifically they should do,
+    # and what other team members are handling)
+    context = task_description
+    if director_plan:
+        context = (
+            f"Director's Plan (from Marcus):\n{director_plan}\n\n"
+            f"Your specific assignment: {task_description}"
+        )
 
     task_prompt = build_task_prompt(
         persona=member,
         task_description=task_description,
         files=files,
-        context=task_description,
+        context=context,
         thread_ts=thread_ts,
         project=project,
     )
