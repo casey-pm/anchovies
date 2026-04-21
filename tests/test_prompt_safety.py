@@ -207,15 +207,19 @@ class TestGitRulesInPrompt:
         prompt = build_task_prompt(persona="sofia", task_description="fix bug in app.py")
         assert "Git Rules" in prompt or "GIT RULES" in prompt.upper()
 
-    def test_branch_name_in_prompt(self):
-        """The persona's expected feature branch name should appear in the prompt."""
+    def test_work_on_current_branch(self):
+        """Prompt should tell persona to work on current branch, not create new ones."""
         prompt = build_task_prompt(persona="sofia", task_description="fix null processor")
-        assert "sofia/fix-null-processor" in prompt
+        assert "current branch" in prompt.lower() or "CURRENT branch" in prompt
+
+    def test_commit_frequently(self):
+        """Prompt should tell persona to commit frequently to avoid conflicts."""
+        prompt = build_task_prompt(persona="sofia", task_description="fix bug")
+        assert "commit frequently" in prompt.lower() or "Commit frequently" in prompt
 
     def test_never_push_main_in_prompt(self):
         prompt = build_task_prompt(persona="sofia", task_description="fix bug")
         assert "main" in prompt
-        # Must say NEVER push to main
         assert "NEVER push" in prompt or "never push" in prompt.lower()
 
     def test_never_force_push_in_prompt(self):

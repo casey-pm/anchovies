@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import config
 from ..context import load_member_context
-from ..git_safety import branch_name
+# from ..git_safety import branch_name  # Not used — all personas share one branch
 from .skill_mapper import get_skills_for_task, detect_task_type
 
 # Patterns that indicate a work request (file edits, code changes, etc.)
@@ -461,16 +461,14 @@ def build_task_prompt(
         "- If unsure, ASK in Slack before running",
         "",
         "### Git Rules (MANDATORY)",
-        f"- You are on branch: `{branch_name(persona, task_description)}`",
+        "- Work on the CURRENT branch (do NOT create or switch branches)",
         "- NEVER push to `main` or `master`",
-        "- NEVER merge to `main` or `master` (Casey merges via PR)",
         "- NEVER force-push (`git push --force`, `-f`, `+branch`)",
-        "- NEVER `git reset --hard` on shared branches",
-        "- NEVER run `git filter-branch` or rewrite shared history",
-        "- Commit only to your feature branch",
+        "- NEVER `git reset --hard`",
+        "- NEVER run `git filter-branch` or rewrite history",
+        "- Commit frequently with clear messages to avoid conflicts with other team members",
         f"- Use commit footer: `Co-Authored-By: {profile.name} (Anchovies) <anchovies@local>`",
-        "- When done, a PR is auto-created from your branch for Casey to review",
-        "- Casey enforces rebase on main before merging",
+        "- Other team members may be working on the same codebase — coordinate and avoid editing the same files",
         "",
         "## Important",
         "- Focus on the task at hand",
