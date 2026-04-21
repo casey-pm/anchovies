@@ -60,7 +60,7 @@ try:
     print(get_emoji('$MEMBER'))
 except: print(':bust_in_silhouette:')
 " 2>/dev/null || echo ":bust_in_silhouette:")
-    MESSAGE="${EMOJI} *${MEMBER_CAP}:* ${MESSAGE}"
+    MESSAGE="${EMOJI} ${MEMBER_CAP}: ${MESSAGE}"
 fi
 
 # Validate

@@ -112,7 +112,7 @@ async def handle_chat_hub_message(
     thinking_response = await client.chat_postMessage(
         channel=channel_id,
         thread_ts=thread_ts,
-        text=":hourglass: *Marcus* is thinking...",
+        text=":hourglass: Marcus is thinking...",
     )
     thinking_ts = thinking_response["ts"]
     logger.info("[ChatHub] Posted thinking indicator, calling Claude CLI...")
@@ -213,7 +213,7 @@ async def handle_chat_hub_message(
         await client.chat_postMessage(
             channel=channel_id,
             thread_ts=thread_ts,
-            text=f":hammer_and_wrench: *Marcus:* {result['response']}\n\n_Check the `{member}` tab in tmux for the work session._",
+            text=f":hammer_and_wrench: Marcus: {result['response']}\n\nCheck the {member} tab in tmux for the work session.",
         )
 
         # Use session manager to spawn and track the session
@@ -969,7 +969,7 @@ async def _handle_control_command(client, channel_id: str, thread_ts: str, messa
         )
         await client.chat_postMessage(
             channel=channel_id, thread_ts=thread_ts,
-            text=f":clipboard: *Marcus:*\n\n{brief}",
+            text=f":clipboard: Marcus:\n\n{brief}",
         )
         return True
 
@@ -1032,7 +1032,7 @@ async def _handle_control_command(client, channel_id: str, thread_ts: str, messa
         compiled = compile_consultation(consult_text, persona_inputs, consult_project)
         await client.chat_postMessage(
             channel=channel_id, thread_ts=thread_ts,
-            text=f":clipboard: *Team Consultation:*\n\n{compiled}",
+            text=f":clipboard: Team Consultation:\n\n{compiled}",
         )
         return True
 
@@ -1046,7 +1046,7 @@ async def _handle_control_command(client, channel_id: str, thread_ts: str, messa
             if reflection:
                 await client.chat_postMessage(
                     channel=channel_id, thread_ts=thread_ts,
-                    text=f":mirror: *{member_name.title()}'s Reflection:*\n\n{reflection}",
+                    text=f":mirror: {member_name.title()}'s Reflection:\n\n{reflection}",
                 )
             else:
                 await client.chat_postMessage(

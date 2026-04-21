@@ -73,7 +73,7 @@ def post_to_slack(
             from anchovies.persona_utils import format_persona_message
             formatted_message = format_persona_message(member, message)
         except Exception:
-            formatted_message = f"*{member.title()}:* {message}"
+            formatted_message = f"{member.title()}: {message}"
     else:
         formatted_message = message
     

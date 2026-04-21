@@ -42,6 +42,6 @@ def get_emoji(member: str) -> str:
 
 
 def format_persona_message(member: str, message: str) -> str:
-    """Format a Slack message with persona emoji and name."""
+    """Format a Slack message with persona emoji and name. No markdown."""
     emoji = get_emoji(member)
-    return f"{emoji} *{member.title()}:* {message}"
+    return f"{emoji} {member.title()}: {message}"

@@ -86,7 +86,7 @@ async def _run_checks() -> list[str]:
         closed = session_mgr.auto_close_timed_out()
         for member in closed:
             alerts.append(
-                f":warning: Watchdog: closed session for *{member.title()}* "
+                f":warning: Watchdog: closed session for {member.title()} "
                 f"(timeout or crash detected)"
             )
 
@@ -96,12 +96,12 @@ async def _run_checks() -> list[str]:
             if session.can_auto_close:
                 # Session is done — tell Casey it can be closed
                 alerts.append(
-                    f":white_check_mark: *{member.title()}*'s session is complete and can be closed. "
+                    f":white_check_mark: {member.title()}'s session is complete and can be closed. "
                     f"Use `Ctrl+b &` in tmux or `stop {member}` in Slack."
                 )
             elif session.inactive_minutes > soft_threshold * 0.7:
                 alerts.append(
-                    f":hourglass: *{member.title()}* has been idle for "
+                    f":hourglass: {member.title()} has been idle for "
                     f"{session.inactive_minutes:.0f} min "
                     f"(soft timeout at {soft_threshold} min)"
                 )
@@ -143,7 +143,7 @@ async def _run_checks() -> list[str]:
         spawned = await session_mgr.drain_queue()
         for member in spawned:
             alerts.append(
-                f":arrow_forward: Queued task started for *{member.title()}* "
+                f":arrow_forward: Queued task started for {member.title()} "
                 f"(slot freed by session closure)"
             )
     except Exception as e:

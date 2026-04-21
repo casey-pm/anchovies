@@ -222,19 +222,19 @@ def format_review_for_slack(result: ReviewResult) -> str:
     ]
 
     if result.issues:
-        lines.append("\n*Issues:*")
+        lines.append("\nIssues:")
         for issue in result.issues:
             lines.append(f"  - {issue}")
 
     if result.suggestions:
-        lines.append("\n*Suggestions:*")
+        lines.append("\nSuggestions:")
         for suggestion in result.suggestions:
             lines.append(f"  - {suggestion}")
 
     if result.verdict == "FAIL" and result.iteration < MAX_ITERATIONS:
         lines.append(f"\n_Persona will be re-spawned to address issues (iteration {result.iteration + 1}/{MAX_ITERATIONS})_")
     elif result.verdict == "FAIL" and result.iteration >= MAX_ITERATIONS:
-        lines.append(f"\n:warning: *Max iterations ({MAX_ITERATIONS}) reached. Escalating to Casey for manual review.*")
+        lines.append(f"\n:warning: Max iterations ({MAX_ITERATIONS}) reached. Escalating to Casey for manual review.")
 
     return "\n".join(lines)
 
