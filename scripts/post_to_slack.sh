@@ -48,11 +48,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Format message with member name if provided
+# Format message with member emoji + name if provided
 if [[ -n "$MEMBER" ]]; then
     # Capitalize first letter
     MEMBER_CAP="$(echo "${MEMBER:0:1}" | tr '[:lower:]' '[:upper:]')${MEMBER:1}"
-    MESSAGE="*${MEMBER_CAP}:* ${MESSAGE}"
+    # Look up emoji from profile
+    EMOJI=$(python3 -c "
+import sys; sys.path.insert(0, '$(dirname "$ANCHOVIES_DIR")')
+try:
+    from anchovies.persona_utils import get_emoji
+    print(get_emoji('$MEMBER'))
+except: print(':bust_in_silhouette:')
+" 2>/dev/null || echo ":bust_in_silhouette:")
+    MESSAGE="${EMOJI} *${MEMBER_CAP}:* ${MESSAGE}"
 fi
 
 # Validate
