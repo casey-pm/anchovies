@@ -97,13 +97,13 @@ class TestSmartRoutingInHandler:
         source = inspect.getsource(handlers_module.handle_chat_hub_message)
         assert "persona_explicit" in source
 
-    def test_handler_calls_get_suggested_persona(self):
+    def test_handler_has_director_response_path(self):
         source = inspect.getsource(handlers_module.handle_chat_hub_message)
-        assert "get_suggested_persona" in source
+        assert "Marcus responds as Director" in source
 
-    def test_handler_stores_pending_suggestion(self):
-        source = inspect.getsource(handlers_module.handle_chat_hub_message)
-        assert "_pending_suggestions" in source
+    def test_handler_has_assign_command(self):
+        source = inspect.getsource(handlers_module._handle_control_command)
+        assert "assign" in source
 
     def test_prompt_builder_returns_persona_explicit(self):
         from anchovies.chat_hub.prompt_builder import detect_work_request
@@ -114,6 +114,7 @@ class TestSmartRoutingInHandler:
 
 
 class TestSmartRoutingIntegration:
-    def test_check_pending_called_in_handle_team_message(self):
-        source = inspect.getsource(handlers_module.handle_team_message)
-        assert "_check_pending_suggestion" in source
+    def test_assign_command_in_handler(self):
+        """The assign command should be wired into the handler."""
+        source = inspect.getsource(handlers_module._handle_control_command)
+        assert "assign" in source

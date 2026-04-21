@@ -162,77 +162,28 @@ async def handle_chat_hub_message(
             )
             return True
 
-        # Smart routing: if no persona was explicitly named, suggest or fall through to chat
+        # No explicit persona — Marcus responds as Director (plans, recommends, gives assign commands)
         if not result.get("persona_explicit", True):
-            logger.info("[ChatHub] No explicit persona — trying smart routing...")
-            from .teams import get_suggested_persona
-            suggestion = get_suggested_persona(cleaned_message)
-            logger.info(f"[ChatHub] Smart routing suggestion: {suggestion}")
-            if suggestion:
-                suggested_member, track_display, reason = suggestion
-                # Clean up task description for sensible branch names
-                from .chat_hub.prompt_builder import extract_task_description
-                _clean_task = extract_task_description(cleaned_message) or cleaned_message
-                # Store the pending suggestion — include Marcus's Director plan
-                _pending_suggestions[thread_ts] = {
-                    "suggested_member": suggested_member,
-                    "track": track_display,
-                    "reason": reason,
-                    "task_description": _clean_task,
-                    "director_plan": result.get("response", ""),
-                    "task_prompt": task_prompt,
-                    "files": result.get("files", []),
-                    "project": project,
-                    "created_at": _time.time(),
-                }
-                # Post Marcus's Director response + the suggestion
-                marcus_response = result.get("response", "")
-                suggestion_text = (
-                    f":mag: *Marcus:* {marcus_response}\n\n"
-                    f"I'd suggest *{suggested_member.title()}* ({reason}) for this.\n"
-                    f"Reply *yes* to assign, or name a different persona."
-                ) if marcus_response else (
-                    f":mag: *Marcus:* This looks like a task for "
-                    f"*{suggested_member.title()}* ({reason}).\n"
-                    f"Reply *yes* to assign, or name a different persona."
-                )
+            logger.info("[ChatHub] No explicit persona — Marcus responds as Director")
+            context = load_member_context(config.CHAT_HUB_PERSONA)
+            profile = context.profile
+            response = result.get("response", "")
+            if response:
                 await client.chat_postMessage(
                     channel=channel_id,
                     thread_ts=thread_ts,
-                    text=suggestion_text,
+                    blocks=messages.build_response_message(profile.name, response, profile.avatar_emoji),
+                    text=f"{profile.name}: {response[:100]}...",
                 )
-                # Save conversation history so Marcus remembers this exchange
-                add_to_conversation(thread_ts, "user", cleaned_message)
-                add_to_conversation(thread_ts, "assistant", marcus_response or f"Suggested {suggested_member.title()} for this task.", config.CHAT_HUB_PERSONA)
-                return True
-            else:
-                # No keyword match — Marcus discusses and recommends (no spawn)
-                logger.info("[ChatHub] No smart routing match — Marcus will discuss and recommend")
-                context = load_member_context(config.CHAT_HUB_PERSONA)
-                profile = context.profile
-                response = result["response"]
-                # Post Marcus's response as a new message (thinking_ts was already deleted)
-                if response:
-                    await client.chat_postMessage(
-                        channel=channel_id,
-                        thread_ts=thread_ts,
-                        blocks=messages.build_response_message(profile.name, response, profile.avatar_emoji),
-                        text=f"{profile.name}: {response[:100]}...",
-                    )
-                add_to_conversation(thread_ts, "user", cleaned_message)
-                add_to_conversation(thread_ts, "assistant", response, config.CHAT_HUB_PERSONA)
-                logger.info(f"[ChatHub] Marcus's response (first 200 chars): {response[:200]}")
+            add_to_conversation(thread_ts, "user", cleaned_message)
+            add_to_conversation(thread_ts, "assistant", response, config.CHAT_HUB_PERSONA)
+            logger.info(f"[ChatHub] Marcus's response (first 200 chars): {response[:200]}")
 
-                # Save Marcus's plan as SPEC.md in the project directory
-                if project and response:
-                    _save_project_spec(project, response, cleaned_message)
+            # Save Marcus's plan as SPEC.md in the project directory
+            if project and response:
+                _save_project_spec(project, response, cleaned_message)
 
-                _detect_assignment_in_response(response, thread_ts, cleaned_message, project)
-                if thread_ts in _pending_suggestions:
-                    logger.info(f"[ChatHub] Pending suggestion created: {_pending_suggestions[thread_ts]['suggested_member']}")
-                else:
-                    logger.warning("[ChatHub] No assignment detected in Marcus's response — 'yes' won't work. Casey should use 'assign <name> <task>' instead.")
-                return True
+            return True
 
         # Guard: NEVER spawn Marcus as a worker — show his chat response instead
         # NOTE: thinking_ts was already deleted above, so we post a NEW message
@@ -639,13 +590,6 @@ async def handle_team_message(
         except Exception:
             pass
 
-    # Check for pending routing suggestion confirmation
-    suggestion_handled = await _check_pending_suggestion(
-        client, channel_id, thread_ts, cleaned_message
-    )
-    if suggestion_handled:
-        return
-
     # Check for help request
     if cleaned_message.lower().strip() in ("help", "?", ""):
         await client.chat_postMessage(
@@ -782,7 +726,11 @@ async def _check_pending_suggestion(
     msg = message.strip().lower()
 
     # "yes", "go", "do it", "ok" = confirm the suggested persona
-    if msg in ("yes", "go", "do it", "ok", "sure", "go ahead", "y"):
+    # Match "yes" at the start of the message (not just as the entire message)
+    # so "yes sofia already started..." still confirms the pending suggestion
+    confirms = ("yes", "go", "do it", "ok", "sure", "go ahead", "y")
+    starts_with_confirm = any(msg.startswith(c) and (len(msg) == len(c) or msg[len(c)] in " .,!") for c in confirms)
+    if starts_with_confirm:
         del _pending_suggestions[thread_ts]
         member = suggestion["suggested_member"]
         await _spawn_from_suggestion(client, channel_id, thread_ts, suggestion, member)

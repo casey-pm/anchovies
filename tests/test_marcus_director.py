@@ -348,12 +348,12 @@ class TestNoUpdateOnDeletedMessage:
         assert "chat_postMessage" in guard_section
         assert "chat_update" not in guard_section or "thinking_ts" not in guard_section.split("chat_update")[1][:50]
 
-    def test_no_routing_match_uses_post_not_update(self):
-        """The 'no smart routing match' path should post a new message, not update deleted one."""
+    def test_director_path_uses_post_not_update(self):
+        """The Director response path should post a new message, not update deleted one."""
         source = inspect.getsource(handlers_module.handle_chat_hub_message)
-        no_match_start = source.index("No smart routing match")
-        no_match_section = source[no_match_start:no_match_start + 500]
-        assert "chat_postMessage" in no_match_section
+        director_start = source.index("Marcus responds as Director")
+        director_section = source[director_start:director_start + 500]
+        assert "chat_postMessage" in director_section
 
 
 class TestEndToEndFlow:
@@ -365,13 +365,13 @@ class TestEndToEndFlow:
         source = inspect.getsource(handlers_module.handle_chat_hub_message)
         assert "_detect_assignment_in_response" in source
 
-    def test_handler_has_smart_routing(self):
+    def test_handler_has_director_path(self):
         source = inspect.getsource(handlers_module.handle_chat_hub_message)
-        assert "get_suggested_persona" in source
+        assert "Marcus responds as Director" in source
 
-    def test_handler_has_pending_suggestion_check(self):
-        source = inspect.getsource(handlers_module.handle_team_message)
-        assert "_check_pending_suggestion" in source
+    def test_handler_has_assign_command(self):
+        source = inspect.getsource(handlers_module._handle_control_command)
+        assert "assign" in source
 
     def test_handler_has_work_detection_logging(self):
         source = inspect.getsource(handlers_module.handle_team_message)

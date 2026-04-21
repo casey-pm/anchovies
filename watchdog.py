@@ -90,10 +90,16 @@ async def _run_checks() -> list[str]:
                 f"(timeout or crash detected)"
             )
 
-        # Check for idle sessions (soft timeout not yet reached but getting close)
+        # Check for idle/completed sessions
         for member, session in session_mgr.active_sessions.items():
             soft_threshold = session_mgr.TIMEOUT_MINUTES
-            if session.inactive_minutes > soft_threshold * 0.7 and not session.can_auto_close:
+            if session.can_auto_close:
+                # Session is done — tell Casey it can be closed
+                alerts.append(
+                    f":white_check_mark: *{member.title()}*'s session is complete and can be closed. "
+                    f"Use `Ctrl+b &` in tmux or `stop {member}` in Slack."
+                )
+            elif session.inactive_minutes > soft_threshold * 0.7:
                 alerts.append(
                     f":hourglass: *{member.title()}* has been idle for "
                     f"{session.inactive_minutes:.0f} min "
