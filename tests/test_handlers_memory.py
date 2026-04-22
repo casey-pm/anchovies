@@ -15,7 +15,7 @@ from anchovies.handlers import (
     MAX_MESSAGES_PER_THREAD,
     THREAD_TTL_SECONDS,
 )
-import anchovies.handlers as handlers_module
+import anchovies.handlers.memory as handlers_module
 
 
 class TestConversationLRU:

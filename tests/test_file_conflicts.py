@@ -203,18 +203,18 @@ class TestStartSessionWithConflicts:
 
 
 class TestHandlerConflictWarning:
-    """Verify the handler posts a Slack warning on file conflict."""
+    """Verify the unified spawner checks for file conflicts."""
 
-    def test_handler_calls_detect_file_conflicts(self):
-        """The chat hub message handler source should call detect_file_conflicts."""
+    def test_spawner_calls_detect_file_conflicts(self):
+        """The unified spawner should call detect_file_conflicts."""
         import inspect
-        from anchovies import handlers
-        source = inspect.getsource(handlers.handle_chat_hub_message)
+        from anchovies.handlers.spawner import spawn_session_for_task
+        source = inspect.getsource(spawn_session_for_task)
         assert "detect_file_conflicts" in source
 
-    def test_handler_passes_files_to_start_session(self):
-        """start_session should be called with files= when work request has files."""
+    def test_spawner_has_files_parameter(self):
+        """spawn_session_for_task should accept files parameter."""
         import inspect
-        from anchovies import handlers
-        source = inspect.getsource(handlers.handle_chat_hub_message)
-        assert "files=" in source
+        from anchovies.handlers.spawner import spawn_session_for_task
+        sig = inspect.signature(spawn_session_for_task)
+        assert "files" in sig.parameters

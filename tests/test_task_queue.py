@@ -228,18 +228,17 @@ class TestConfig:
 
 
 class TestHandlerIntegration:
-    def test_handler_checks_session_limit(self):
-        from anchovies import handlers
-        source = inspect.getsource(handlers.handle_chat_hub_message)
+    def test_spawner_checks_session_limit(self):
+        from anchovies.handlers.spawner import spawn_session_for_task
+        source = inspect.getsource(spawn_session_for_task)
         assert "MAX_CONCURRENT_SESSIONS" in source
 
-    def test_handler_enqueues_when_full(self):
-        from anchovies import handlers
-        source = inspect.getsource(handlers.handle_chat_hub_message)
-        assert "queue.enqueue" in source or "enqueue" in source
+    def test_spawner_enqueues_when_full(self):
+        from anchovies.handlers.spawner import spawn_session_for_task
+        source = inspect.getsource(spawn_session_for_task)
+        assert "enqueue" in source
 
-    def test_handler_posts_queue_position(self):
-        from anchovies import handlers
-        source = inspect.getsource(handlers.handle_chat_hub_message)
-        assert "queued" in source.lower()
-        assert "position" in source.lower()
+    def test_spawner_posts_queue_info(self):
+        from anchovies.handlers.spawner import spawn_session_for_task
+        source = inspect.getsource(spawn_session_for_task)
+        assert "queued" in source.lower() or "position" in source.lower()

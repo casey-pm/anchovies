@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from anchovies.handlers import _handle_control_command, _paused
+from anchovies.handlers import _handle_control_command
 from anchovies.storage import Storage, reset_storage
 from anchovies.work_sessions.session_manager import SessionManager, WorkSession
 import anchovies.handlers as handlers_module
@@ -32,9 +32,10 @@ def client():
 @pytest.fixture(autouse=True)
 def reset_paused():
     """Reset pause state between tests."""
-    handlers_module._paused = False
+    import anchovies.handlers.control_commands as cc
+    cc._paused = False
     yield
-    handlers_module._paused = False
+    cc._paused = False
 
 
 # ---------------------------------------------------------------------------
@@ -45,8 +46,8 @@ def reset_paused():
 class TestStopAll:
     @pytest.mark.anyio
     async def test_stop_all_kills_sessions(self, client, fresh_storage):
-        with patch("anchovies.handlers.get_session_manager") as mock_mgr, \
-             patch("anchovies.handlers.get_tmux_manager") as mock_tmux:
+        with patch("anchovies.handlers.control_commands.get_session_manager") as mock_mgr, \
+             patch("anchovies.handlers.control_commands.get_tmux_manager") as mock_tmux:
             mgr = MagicMock()
             mgr.active_sessions = {
                 "sofia": WorkSession(member="sofia", task_description="t"),
@@ -69,8 +70,8 @@ class TestStopAll:
         queue = get_task_queue()
         queue.enqueue(QueuedTask(member="james", task_description="t", task_prompt="p"))
 
-        with patch("anchovies.handlers.get_session_manager") as mock_mgr, \
-             patch("anchovies.handlers.get_tmux_manager"):
+        with patch("anchovies.handlers.control_commands.get_session_manager") as mock_mgr, \
+             patch("anchovies.handlers.control_commands.get_tmux_manager"):
             mgr = MagicMock()
             mgr.active_sessions = {}
             mgr.storage = fresh_storage
@@ -90,8 +91,8 @@ class TestStopAll:
 class TestStopSpecific:
     @pytest.mark.anyio
     async def test_stop_active_session(self, client, fresh_storage):
-        with patch("anchovies.handlers.get_session_manager") as mock_mgr, \
-             patch("anchovies.handlers.get_tmux_manager"):
+        with patch("anchovies.handlers.control_commands.get_session_manager") as mock_mgr, \
+             patch("anchovies.handlers.control_commands.get_tmux_manager"):
             mgr = MagicMock()
             mgr.active_sessions = {
                 "sofia": WorkSession(member="sofia", task_description="t"),
@@ -107,7 +108,7 @@ class TestStopSpecific:
 
     @pytest.mark.anyio
     async def test_stop_nonexistent_session(self, client, fresh_storage):
-        with patch("anchovies.handlers.get_session_manager") as mock_mgr:
+        with patch("anchovies.handlers.control_commands.get_session_manager") as mock_mgr:
             mgr = MagicMock()
             mgr.active_sessions = {}
             mgr.storage = fresh_storage
@@ -138,18 +139,20 @@ class TestStopSpecific:
 class TestPauseResume:
     @pytest.mark.anyio
     async def test_pause(self, client):
+        import anchovies.handlers.control_commands as cc
         result = await _handle_control_command(client, "C1", "T1", "pause")
         assert result is True
-        assert handlers_module._paused is True
+        assert cc._paused is True
         text = client.chat_postMessage.call_args.kwargs["text"]
         assert "paused" in text.lower()
 
     @pytest.mark.anyio
     async def test_resume(self, client):
-        handlers_module._paused = True
+        import anchovies.handlers.control_commands as cc
+        cc._paused = True
         result = await _handle_control_command(client, "C1", "T1", "resume")
         assert result is True
-        assert handlers_module._paused is False
+        assert cc._paused is False
         text = client.chat_postMessage.call_args.kwargs["text"]
         assert "resumed" in text.lower()
 
@@ -162,7 +165,7 @@ class TestPauseResume:
 class TestDailySummary:
     @pytest.mark.anyio
     async def test_daily_summary_basic(self, client, fresh_storage):
-        with patch("anchovies.handlers.get_session_manager") as mock_mgr, \
+        with patch("anchovies.handlers.control_commands.get_session_manager") as mock_mgr, \
              patch("anchovies.task_queue.get_task_queue") as mock_queue:
             mgr = MagicMock()
             mgr.active_sessions = {}
@@ -182,7 +185,7 @@ class TestDailySummary:
 
     @pytest.mark.anyio
     async def test_summary_alias(self, client, fresh_storage):
-        with patch("anchovies.handlers.get_session_manager") as mock_mgr, \
+        with patch("anchovies.handlers.control_commands.get_session_manager") as mock_mgr, \
              patch("anchovies.task_queue.get_task_queue") as mock_queue:
             mgr = MagicMock()
             mgr.active_sessions = {}
@@ -223,8 +226,8 @@ class TestNotControlCommand:
 class TestControlIntegration:
     def test_handler_calls_control_command(self):
         source = inspect.getsource(handlers_module.handle_team_message)
-        assert "_handle_control_command" in source
+        assert "handle_control_command" in source
 
     def test_handler_checks_paused(self):
         source = inspect.getsource(handlers_module.handle_team_message)
-        assert "_paused" in source
+        assert "is_paused" in source
